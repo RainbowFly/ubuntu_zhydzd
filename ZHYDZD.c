@@ -22,8 +22,8 @@
 #include<netinet/in.h>
 #include<arpa/inet.h>
 
-#define CPORT 7777
-#define LOCALPORT 9020  
+#define CPORT 9020
+#define LOCALPORT 7777  
 #define SIP "192.168.3.58"
 #define DEVICE1 "/dev/ttyS1"//control uart
 #define DEVICE2 "/dev/ttyS2"//modem uart
