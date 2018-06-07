@@ -689,7 +689,7 @@ void *pthread_utos(void *arg)
                 break;
             }
 
-            n = write(cli_fd,buf,strlen(buf));
+            n = send(cli_fd,buf,strlen(buf),0);
             if (n < 0)
             {
                 perror("write to socket");
