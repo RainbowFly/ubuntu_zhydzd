@@ -99,7 +99,7 @@ int main(void)
         if(len>0)
         {
             rcv_buf[len] = '\0';
-            printf("receive data is %s\n, len = %d\n",rcv_buf,len);
+            printf("receive data is %s, len = %d\n",rcv_buf,len);
         }
         else
         {
@@ -107,9 +107,28 @@ int main(void)
         }
         strncpy(ctrlrecv,rcv_buf,strlen(rcv_buf));
         strncpy(ctrlcommand,ctrlrecv,1);//通道
-        strncpy(ctrldata,ctrlrecv+2,strlen(ctrlrecv)-2);//方式
+        strncpy(ctrldata,ctrlrecv+2,strlen(ctrlrecv)-4);//方式
         printf("ctrlcommand = %s, ctrldata = %s\n",ctrlcommand,ctrldata);
-        if(*(ctrlcommand) == '1')
+        if (*(ctrlcommand) == '0')
+        {
+            /*
+            * USB to tcp
+            * need ip
+            * 1.In this department you should connect server or client first
+            * 2.Analyzing conditions is ip
+            */
+            if(*(ctrldata) != '9')//server
+            {
+               //start server
+                Server_start();
+            }
+            else
+            {
+               //start client
+                Client_start(ctrldata);
+            }
+        }
+        else if (*(ctrlcommand) == '1')
         {
             /*uart to modem
             * 1.call target number
@@ -150,25 +169,6 @@ int main(void)
             close(uart_fd2);
             printf("RS232 exit...\n");
 
-        }
-        else if (*(ctrlcommand) == '0')
-        {
-            /*
-            * USB to tcp
-            * need ip
-            * 1.In this department you should connect server or client first
-            * 2.Analyzing conditions is ip
-            */
-            if(*(ctrldata) == ' ')//server
-            {
-               //start server
-                Server_start();
-            }
-            else
-            {
-               //start client
-                Client_start(ctrldata);
-            }
         }
         else
             printf("Wrong input!\n");
@@ -449,6 +449,10 @@ int Server_start(void)
         close(sockSev_fd);
         return -1;
     }
+    else
+    {
+        printf("Creat socket succeed!\n");
+    }
 
     //setsockopt(sockSev_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if(bind(sockSev_fd,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0)
@@ -457,12 +461,20 @@ int Server_start(void)
         close(sockSev_fd);
         return -1;
     }
+    else
+    {
+        printf("bind....\n");
+    }
 
     if(listen(sockSev_fd, 1))        //启用套接字侦听连接，成功返回0
     {  
         perror("Server Listen");
         close(sockSev_fd);   
         return -1;  
+    }
+    else
+    {
+        printf("listen....\n");
     }
 
     while (1)
@@ -475,6 +487,7 @@ int Server_start(void)
             close(sockSev_fd);
             return -1;
         }
+        printf("accept....\n");
         p = pthread_create(&thread1,NULL,&(pthread_server),&connfd);
         if(p < 0)
         {
@@ -482,6 +495,7 @@ int Server_start(void)
             close(sockSev_fd);
             return -1;
         }
+        pthread_join(thread1,NULL);
         break;
     }
     close(connfd);
@@ -499,7 +513,7 @@ void *pthread_server(void *arg)
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = read(fd,buf,1024);
+        t = recv(fd,buf,1024,0);
         if(t>0)
         {
             if(0 == strncmp(buf,"q",1))
@@ -507,7 +521,7 @@ void *pthread_server(void *arg)
                 break;
             }
 
-            n = write(cli_fd,buf,strlen(buf));
+            n = send(cli_fd,buf,strlen(buf),0);
             if(n<0)
             {
                 perror("write to cli");
@@ -526,7 +540,7 @@ void *pthread_server(void *arg)
         }    
         //是否加break
     }
-    printf("server to client...\n");  
+    printf("server to client exit!\n");  
     pthread_exit(0); 
 }
 /************************************************************************************** 
@@ -544,7 +558,7 @@ int Client_start(char *ip)
 
     bzero(&client,sizeof(client));
     client.sin_family = AF_INET;
-    client.sin_port = htons(7777);
+    client.sin_port = htons(LOCALPORT);
 
     if ((inet_pton(AF_INET,ip,&client.sin_addr)) < 0)
     {
@@ -575,6 +589,7 @@ int Client_start(char *ip)
         perror("pthread_client");
         return -1;
     }
+    pthread_join(thread2,NULL);
     close(sockCli_fd);
 }
 
@@ -589,7 +604,7 @@ void *pthread_client(void *arg)
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = read(cli_fd,buf,1024);
+        t = recv(cli_fd,buf,1024,0);
         if(t>0)
         {
             if(0 == strncmp(buf,"q",1))
@@ -597,7 +612,7 @@ void *pthread_client(void *arg)
                 break;
             }
 
-            n = write(fd,buf,strlen(buf));
+            n = send(fd,buf,strlen(buf),0);
             if(n<0)
             {
                 perror("write to cli");
@@ -612,7 +627,7 @@ void *pthread_client(void *arg)
         }
         //是否加break
     }
-    printf("client to client...\n");  
+    printf("client to client exit!\n");  
     pthread_exit(0); 
 }
 /************************************************************************************** 
