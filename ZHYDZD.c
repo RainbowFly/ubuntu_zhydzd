@@ -8,6 +8,9 @@
  *      ChangeLog:  2018/5/25 修改Server_start() Client_start()为有返回值
  *                  
  ********************************************************************************/
+// linux 下读取大于2GB文件时，需指定
+#define _FILE_OFFSET_BITS 64
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -28,6 +31,8 @@
 #define DEVICE1 "/dev/ttyS1"//control uart
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
+//定义包大小10KB(上位机定义)
+#define PACK_SIZE 1024*10
 /*define*/
 int cli_fd;//上位机
 int uart_fd1;//control uart signal
@@ -220,7 +225,7 @@ int socket_cli(char *ip)
 }
 /*
  * open device 
-*/ 
+ */ 
 int open_dev(char *dev)
 {
     int fd;
@@ -508,15 +513,15 @@ void *pthread_server(void *arg)
     int *s = (int*)arg;
     int fd = *s;
     int t = 0,n = 0;
-    char buf[1024] = {0};
+    char buf[PACK_SIZE] = {0};
     //没有出口条件
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(fd,buf,1024,0);
+        t = recv(fd,buf,PACK_SIZE,0);
         if(t>0)
         {
-            if(0 == strncmp(buf,"q",1))
+            if(0 == strncmp(buf,"quit",4))
             {
                 break;
             }
@@ -592,22 +597,21 @@ int Client_start(char *ip)
     pthread_join(thread2,NULL);
     close(sockCli_fd);
 }
-
 void *pthread_client(void *arg)
 {
     printf("start client to client...\n");
     int *s = (int*)arg;
     int fd = *s;
     int t = 0,n = 0;
-    char buf[1024] = {0};
+    char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,1024,0);
+        t = recv(cli_fd,buf,PACK_SIZE,0);
         if(t>0)
         {
-            if(0 == strncmp(buf,"q",1))
+            if(0 == strncmp(buf,"quit",4))
             {
                 break;
             }
@@ -642,16 +646,16 @@ void *pthread_stou(void *arg)
     int *s = (int*)arg;
     int fd = *s;
     int t = 0,n = 0;
-    char buf[1024] = {0};
+    char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,1024,0);
+        t = recv(cli_fd,buf,PACK_SIZE,0);
         printf("t = %d\n", t);
         if(t > 0)
         {
-            if(0 == strncmp(buf,"q",1))
+            if(0 == strncmp(buf,"quit",4))
             {
                 break;
             }
@@ -691,15 +695,15 @@ void *pthread_utos(void *arg)
     int *s = (int*)arg;
     int fd = *s;
     int t = 0,n = 0;
-    char buf[1024] = {0};
+    char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = read(fd,buf,1024);
+        t = read(fd,buf,PACK_SIZE);
         if(t > 0)
         {
-            if(0 == strncmp(buf,"q",1))
+            if(0 == strncmp(buf,"quit",4))
             {
                 break;
             }
