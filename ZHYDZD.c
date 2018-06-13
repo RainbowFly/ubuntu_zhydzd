@@ -122,7 +122,7 @@ int main(void)
             * 1.In this department you should connect server or client first
             * 2.Analyzing conditions is ip
             */
-            if(*(ctrldata) != '9')//server
+            if(*(ctrldata) == '\0')//server
             {
                //start server
                 Server_start();
