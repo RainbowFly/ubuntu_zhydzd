@@ -45,9 +45,11 @@ int open_dev(char *dev);
 int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity);
 int uart_recv(int fd,char *buff,int data_len);
 int Server_start(void);
-void *pthread_server(void *arg);
+void *pthread_sertocli(void *arg);
+void *pthread_clitoser(void *arg);
 int Client_start(char *ip);
-void *pthread_client(void *arg);
+void *pthread_clitocli(void *arg);
+void *pthread_clitocli_fd(void *arg);
 void *pthread_stou(void *arg);//RS232
 void *pthread_utos(void *arg);//RS232
 void *pthread_error(void *arg);//error msg to ctl uart
@@ -104,7 +106,7 @@ int main(void)
         if(len>0)
         {
             rcv_buf[len] = '\0';
-            printf("receive data is %s, len = %d\n",rcv_buf,len);
+            printf("receive data is %s len = %d\n",rcv_buf,len);
         }
         else
         {
@@ -438,8 +440,7 @@ int Server_start(void)
     struct sockaddr_in server;
     struct sockaddr_in client;
     int connfd = 0;
-    int p =0;
-    pthread_t thread1;
+    pthread_t thread1,thread2;
 
     bzero(&server,sizeof(server));   
     
@@ -493,21 +494,37 @@ int Server_start(void)
             return -1;
         }
         printf("accept....\n");
-        p = pthread_create(&thread1,NULL,&(pthread_server),&connfd);
+        int p = 0;
+        p = pthread_create(&thread1,NULL,&(pthread_sertocli),&connfd);
         if(p < 0)
         {
-            perror("pthread_server");
-            close(sockSev_fd);
+            perror("pthread_sertocli");
             return -1;
         }
+        else
+        {
+            printf("pthread_sertocli create...\n");
+        }
+
+        int s = 0;
+        s = pthread_create(&thread2,NULL,&(pthread_clitoser),&connfd);
+        if (s < 0) 
+        {
+            perror("pthread_clitoser");
+            return -1;
+        }
+        else
+        {
+            printf("pthread_clitoser create...\n");
+        }
         pthread_join(thread1,NULL);
+        pthread_join(thread2,NULL);
         break;
     }
     close(connfd);
     close(sockSev_fd);
 }
-
-void *pthread_server(void *arg)
+void *pthread_sertocli(void *arg)
 {
     printf("start server to client...\n");
     int *s = (int*)arg;
@@ -521,22 +538,16 @@ void *pthread_server(void *arg)
         t = recv(fd,buf,PACK_SIZE,0);
         if(t>0)
         {
-            if(0 == strncmp(buf,"quit",4))
-            {
-                break;
-            }
-
             n = send(cli_fd,buf,strlen(buf),0);
             if(n<0)
             {
                 perror("write to cli");
                 break;
             }
-            //break;
         }
         else if(t<0)
         {
-            perror("read from socket");
+            perror("read from server");
             break;
         }
         else if(t == 0)
@@ -548,6 +559,45 @@ void *pthread_server(void *arg)
     printf("server to client exit!\n");  
     pthread_exit(0); 
 }
+void *pthread_clitoser(void *arg)
+{
+    printf("start client to server...\n");
+    int *s = (int*)arg;
+    int fd = *s;
+    int t = 0,n = 0;
+    char buf[PACK_SIZE] = {0};
+
+    while (1)
+    {
+        memset(buf,0,sizeof(buf));
+        t = recv(cli_fd,buf,PACK_SIZE,0);
+        if(t>0)
+        {
+            if(0 == strncmp(buf,"quit",4))
+            {
+                break;
+            }
+
+            n = send(fd,buf,strlen(buf),0);
+            if(n<0)
+            {
+                perror("write to ser");
+                break;
+            }
+        }
+        else if(t<0)
+        {
+            perror("read from client");
+            break;
+        }
+        else if(t == 0)
+        {
+            break;
+        }    
+    }
+    printf("client to server exit!\n");  
+    pthread_exit(0); 
+}
 /************************************************************************************** 
  *  Description: client
  *   Input Args: ip
@@ -557,8 +607,7 @@ void *pthread_server(void *arg)
 int Client_start(char *ip)
 {
     int sockCli_fd;
-    pthread_t thread2;
-    int p = 0;
+    pthread_t thread1,thread2;
     struct sockaddr_in client;
 
     bzero(&client,sizeof(client));
@@ -588,16 +637,25 @@ int Client_start(char *ip)
 
     printf("Connect server succeed!\n");
 
-    pthread_create(&thread2,NULL,&(pthread_client),&sockCli_fd);
+    int p = 0;
+    p = pthread_create(&thread1,NULL,&(pthread_clitocli),&sockCli_fd);
     if(p < 0)
     {
-        perror("pthread_client");
+        perror("pthread_clitocli");
         return -1;
     }
+    int s = 0;
+    s = pthread_create(&thread2,NULL,&(pthread_clitocli_fd),&sockCli_fd);
+    if(s < 0)
+    {
+        perror("pthread_clitocli_fd");
+        return -1;
+    }
+    pthread_join(thread1,NULL);
     pthread_join(thread2,NULL);
     close(sockCli_fd);
 }
-void *pthread_client(void *arg)
+void *pthread_clitocli(void *arg)
 {
     printf("start client to client...\n");
     int *s = (int*)arg;
@@ -622,17 +680,50 @@ void *pthread_client(void *arg)
                 perror("write to cli");
                 break;
             }
-            //break;
         }
         else if(t<0)
         {
             perror("read from client");
             break;
         }
-        //是否加break
     }
     printf("client to client exit!\n");  
     pthread_exit(0); 
+}
+void *pthread_clitocli_fd(void *arg)
+{
+    printf("start client to client_fd...\n");
+    int *s = (int*)arg;
+    int fd = *s;
+    int t = 0,n = 0;
+    char buf[PACK_SIZE] = {0};
+
+    while (1)
+    {
+        memset(buf,0,sizeof(buf));
+        t = recv(fd,buf,PACK_SIZE,0);
+        if(t>0)
+        {
+            if(0 == strncmp(buf,"quit",4))
+            {
+                break;
+            }
+
+            n = send(cli_fd,buf,strlen(buf),0);
+            if(n<0)
+            {
+                perror("write to cli_fd");
+                break;
+            }
+        }
+        else if(t<0)
+        {
+            perror("read from client");
+            break;
+        }
+    }
+    printf("client to client_fd exit!\n");  
+    pthread_exit(0);    
 }
 /************************************************************************************** 
  *  Description:接收socket数据并通过串口转发 
