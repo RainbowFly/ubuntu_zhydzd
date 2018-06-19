@@ -536,9 +536,20 @@ void *pthread_sertocli(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = recv(fd,buf,PACK_SIZE,0);
+        printf("stc recv t = %d\n", t);
         if(t>0)
         {
-            n = send(cli_fd,buf,strlen(buf),0);
+            if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
+            {
+                n = send(cli_fd,buf,PACK_SIZE,0);
+                if(n<0)
+                {
+                    perror("write to cli");
+                    break;
+                }
+                break;
+            }
+            n = send(cli_fd,buf,PACK_SIZE,0);
             if(n<0)
             {
                 perror("write to cli");
@@ -571,14 +582,21 @@ void *pthread_clitoser(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = recv(cli_fd,buf,PACK_SIZE,0);
+        printf("cts recv t = %d\n", t);
         if(t>0)
         {
-            if(0 == strncmp(buf,"quit",4))
+            if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
             {
+                n = send(fd,buf,PACK_SIZE,0);
+                if(n<0)
+                {
+                    perror("write to ser");
+                    break;
+                }
                 break;
             }
 
-            n = send(fd,buf,strlen(buf),0);
+            n = send(fd,buf,PACK_SIZE,0);
             if(n<0)
             {
                 perror("write to ser");
@@ -667,14 +685,21 @@ void *pthread_clitocli(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = recv(cli_fd,buf,PACK_SIZE,0);
+        printf("ctc recv t = %d\n", t);
         if(t>0)
         {
-            if(0 == strncmp(buf,"quit",4))
+            if(0 == strncasecmp(buf+1,"quit",4))
             {
+                n = send(fd,buf,PACK_SIZE,0);
+                if(n<0)
+                {
+                    perror("write to cli");
+                    break;
+                }
                 break;
             }
 
-            n = send(fd,buf,strlen(buf),0);
+            n = send(fd,buf,PACK_SIZE,0);
             if(n<0)
             {
                 perror("write to cli");
@@ -702,14 +727,21 @@ void *pthread_clitocli_fd(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = recv(fd,buf,PACK_SIZE,0);
+        printf("ctcd recv t = %d\n", t);
         if(t>0)
         {
-            if(0 == strncmp(buf,"quit",4))
+            if(0 == strncasecmp(buf+1,"quit",4))
             {
+                n = send(cli_fd,buf,PACK_SIZE,0);
+                if(n<0)
+                {
+                    perror("write to cli_fd");
+                    break;
+                }
                 break;
             }
 
-            n = send(cli_fd,buf,strlen(buf),0);
+            n = send(cli_fd,buf,PACK_SIZE,0);
             if(n<0)
             {
                 perror("write to cli_fd");
@@ -743,15 +775,21 @@ void *pthread_stou(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = recv(cli_fd,buf,PACK_SIZE,0);
-        printf("t = %d\n", t);
+        printf("stu recv t = %d\n", t);
         if(t > 0)
         {
-            if(0 == strncmp(buf,"quit",4))
+            if(0 == strncasecmp(buf+1,"quit",4))
             {
+                n = write(fd,buf,PACK_SIZE);
+                if (n < 0)
+                {
+                    perror("write to uart");
+                    break;
+                }
                 break;
             }
 
-            n = write(fd,buf,strlen(buf));
+            n = write(fd,buf,PACK_SIZE);
             if (n < 0)
             {
                 perror("write to uart");
@@ -792,14 +830,21 @@ void *pthread_utos(void *arg)
     {
         memset(buf,0,sizeof(buf));
         t = read(fd,buf,PACK_SIZE);
+        printf("uts read t = %d\n",t);
         if(t > 0)
         {
-            if(0 == strncmp(buf,"quit",4))
+            if(0 == strncasecmp(buf+1,"quit",4))
             {
+                n = send(cli_fd,buf,PACK_SIZE,0);
+                if (n < 0)
+                {
+                    perror("write to socket");
+                    break;
+                }
                 break;
             }
 
-            n = send(cli_fd,buf,strlen(buf),0);
+            n = send(cli_fd,buf,PACK_SIZE,0);
             if (n < 0)
             {
                 perror("write to socket");
