@@ -527,8 +527,7 @@ int Server_start(void)
 void *pthread_sertocli(void *arg)
 {
     printf("start server to client...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
     //没有出口条件
@@ -556,16 +555,17 @@ void *pthread_sertocli(void *arg)
                 break;
             }
         }
+        else if(t == 0)
+        {
+            printf("sertocli connect failed!\n");
+            break;
+        }
         else if(t<0)
         {
             perror("read from server");
             break;
         }
-        else if(t == 0)
-        {
-            break;
-        }    
-        //是否加break
+        sleep(1);
     }
     printf("server to client exit!\n");  
     pthread_exit(0); 
@@ -573,8 +573,7 @@ void *pthread_sertocli(void *arg)
 void *pthread_clitoser(void *arg)
 {
     printf("start client to server...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
@@ -603,15 +602,17 @@ void *pthread_clitoser(void *arg)
                 break;
             }
         }
+        else if(t == 0)
+        {
+            printf("clitoser connect failed!\n");
+            break;
+        }
         else if(t<0)
         {
             perror("read from client");
             break;
         }
-        else if(t == 0)
-        {
-            break;
-        }    
+        sleep(1);
     }
     printf("client to server exit!\n");  
     pthread_exit(0); 
@@ -676,8 +677,7 @@ int Client_start(char *ip)
 void *pthread_clitocli(void *arg)
 {
     printf("start client to client...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
@@ -706,11 +706,17 @@ void *pthread_clitocli(void *arg)
                 break;
             }
         }
+        else if(t == 0)
+        {
+            printf("clitocli connect failed!\n");
+            break;
+        }
         else if(t<0)
         {
             perror("read from client");
             break;
         }
+        sleep(1);
     }
     printf("client to client exit!\n");  
     pthread_exit(0); 
@@ -718,8 +724,7 @@ void *pthread_clitocli(void *arg)
 void *pthread_clitocli_fd(void *arg)
 {
     printf("start client to client_fd...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
@@ -748,11 +753,17 @@ void *pthread_clitocli_fd(void *arg)
                 break;
             }
         }
+        else if(t == 0)
+        {
+            printf("clitocli_fd connect failed!\n");
+            break;
+        }
         else if(t<0)
         {
             perror("read from client");
             break;
         }
+        sleep(1);
     }
     printf("client to client_fd exit!\n");  
     pthread_exit(0);    
@@ -766,8 +777,7 @@ void *pthread_clitocli_fd(void *arg)
 void *pthread_stou(void *arg)
 {
     printf("start socket_to_uart...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
@@ -797,13 +807,14 @@ void *pthread_stou(void *arg)
             }
             //break;
         }
+        else if(t == 0)
+        {
+            printf("stou connect failed!\n");
+            break;
+        }
         else if(t < 0)
         {
             perror("read from socket");
-            break;
-        }
-        else if(t == 0)
-        {
             break;
         }
         sleep(1);
@@ -821,8 +832,7 @@ void *pthread_stou(void *arg)
 void *pthread_utos(void *arg)
 {
     printf("start uart_to_socket...\n");
-    int *s = (int*)arg;
-    int fd = *s;
+    int fd = (int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
@@ -852,15 +862,17 @@ void *pthread_utos(void *arg)
             }
             //break;
         }
+        else if(t == 0)
+        {
+            printf("utos connect failed!\n");
+            break;
+        }
         else if(t < 0)
         {
             perror("read from uart");
             break;
         }
-        else if(t == 0)
-        {
-            break;
-        }
+        sleep(1);
     }
 
     printf("uart_to_socket exit...\n");  
