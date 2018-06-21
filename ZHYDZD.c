@@ -32,7 +32,7 @@
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
 //定义包大小10KB(上位机定义)
-#define PACK_SIZE 1024*10
+#define PACK_SIZE 10005
 /*define*/
 int cli_fd;//上位机
 int uart_fd1;//control uart signal
@@ -527,20 +527,21 @@ int Server_start(void)
 void *pthread_sertocli(void *arg)
 {
     printf("start server to client...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
     //没有出口条件
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(fd,buf,PACK_SIZE,0);
+        t = recv(fd,buf,sizeof(buf),0);
         printf("stc recv t = %d\n", t);
+        //printf("stc recv buf: %s\n",buf);
         if(t>0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
             {
-                n = send(cli_fd,buf,PACK_SIZE,0);
+                n = send(cli_fd,buf,sizeof(buf),0);
                 if(n<0)
                 {
                     perror("write to cli");
@@ -548,7 +549,9 @@ void *pthread_sertocli(void *arg)
                 }
                 break;
             }
-            n = send(cli_fd,buf,PACK_SIZE,0);
+            n = send(cli_fd,buf,sizeof(buf),0);
+            printf("stc send n = %d\n", n);
+            //printf("stc send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to cli");
@@ -565,7 +568,6 @@ void *pthread_sertocli(void *arg)
             perror("read from server");
             break;
         }
-        sleep(1);
     }
     printf("server to client exit!\n");  
     pthread_exit(0); 
@@ -573,20 +575,21 @@ void *pthread_sertocli(void *arg)
 void *pthread_clitoser(void *arg)
 {
     printf("start client to server...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,PACK_SIZE,0);
+        t = recv(cli_fd,buf,sizeof(buf),0);
         printf("cts recv t = %d\n", t);
+        //printf("cts recv buf: %s\n",buf);
         if(t>0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
             {
-                n = send(fd,buf,PACK_SIZE,0);
+                n = send(fd,buf,sizeof(buf),0);
                 if(n<0)
                 {
                     perror("write to ser");
@@ -595,7 +598,9 @@ void *pthread_clitoser(void *arg)
                 break;
             }
 
-            n = send(fd,buf,PACK_SIZE,0);
+            n = send(fd,buf,sizeof(buf),0);
+            printf("cts send n = %d\n", n);
+            //printf("cts send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to ser");
@@ -612,7 +617,6 @@ void *pthread_clitoser(void *arg)
             perror("read from client");
             break;
         }
-        sleep(1);
     }
     printf("client to server exit!\n");  
     pthread_exit(0); 
@@ -677,20 +681,21 @@ int Client_start(char *ip)
 void *pthread_clitocli(void *arg)
 {
     printf("start client to client...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,PACK_SIZE,0);
+        t = recv(cli_fd,buf,sizeof(buf),0);
         printf("ctc recv t = %d\n", t);
+        //printf("ctc recv buf: %s\n",buf);
         if(t>0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))
             {
-                n = send(fd,buf,PACK_SIZE,0);
+                n = send(fd,buf,sizeof(buf),0);
                 if(n<0)
                 {
                     perror("write to cli");
@@ -699,7 +704,9 @@ void *pthread_clitocli(void *arg)
                 break;
             }
 
-            n = send(fd,buf,PACK_SIZE,0);
+            n = send(fd,buf,sizeof(buf),0);
+            printf("ctc send n = %d\n", n);
+            //printf("ctc send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to cli");
@@ -716,7 +723,6 @@ void *pthread_clitocli(void *arg)
             perror("read from client");
             break;
         }
-        sleep(1);
     }
     printf("client to client exit!\n");  
     pthread_exit(0); 
@@ -724,20 +730,21 @@ void *pthread_clitocli(void *arg)
 void *pthread_clitocli_fd(void *arg)
 {
     printf("start client to client_fd...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(fd,buf,PACK_SIZE,0);
+        t = recv(fd,buf,sizeof(buf),0);
         printf("ctcd recv t = %d\n", t);
+        //printf("ctcd recv buf: %s\n",buf);
         if(t>0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))
             {
-                n = send(cli_fd,buf,PACK_SIZE,0);
+                n = send(cli_fd,buf,sizeof(buf),0);
                 if(n<0)
                 {
                     perror("write to cli_fd");
@@ -746,7 +753,9 @@ void *pthread_clitocli_fd(void *arg)
                 break;
             }
 
-            n = send(cli_fd,buf,PACK_SIZE,0);
+            n = send(cli_fd,buf,sizeof(buf),0);
+            printf("ctcd send n = %d\n", n);
+            //printf("ctcd send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to cli_fd");
@@ -763,7 +772,6 @@ void *pthread_clitocli_fd(void *arg)
             perror("read from client");
             break;
         }
-        sleep(1);
     }
     printf("client to client_fd exit!\n");  
     pthread_exit(0);    
@@ -777,20 +785,20 @@ void *pthread_clitocli_fd(void *arg)
 void *pthread_stou(void *arg)
 {
     printf("start socket_to_uart...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,PACK_SIZE,0);
+        t = recv(cli_fd,buf,sizeof(buf),0);
         printf("stu recv t = %d\n", t);
         if(t > 0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))
             {
-                n = write(fd,buf,PACK_SIZE);
+                n = write(fd,buf,sizeof(buf));
                 if (n < 0)
                 {
                     perror("write to uart");
@@ -799,7 +807,7 @@ void *pthread_stou(void *arg)
                 break;
             }
 
-            n = write(fd,buf,PACK_SIZE);
+            n = write(fd,buf,sizeof(buf));
             if (n < 0)
             {
                 perror("write to uart");
@@ -817,7 +825,6 @@ void *pthread_stou(void *arg)
             perror("read from socket");
             break;
         }
-        sleep(1);
     }
 
     printf("socket_to_uart exit...\n");  
@@ -832,20 +839,20 @@ void *pthread_stou(void *arg)
 void *pthread_utos(void *arg)
 {
     printf("start uart_to_socket...\n");
-    int fd = (int*)arg;
+    int fd = *(int*)arg;
     int t = 0,n = 0;
     char buf[PACK_SIZE] = {0};
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = read(fd,buf,PACK_SIZE);
+        t = read(fd,buf,sizeof(buf));
         printf("uts read t = %d\n",t);
         if(t > 0)
         {
             if(0 == strncasecmp(buf+1,"quit",4))
             {
-                n = send(cli_fd,buf,PACK_SIZE,0);
+                n = send(cli_fd,buf,sizeof(buf),0);
                 if (n < 0)
                 {
                     perror("write to socket");
@@ -854,7 +861,7 @@ void *pthread_utos(void *arg)
                 break;
             }
 
-            n = send(cli_fd,buf,PACK_SIZE,0);
+            n = send(cli_fd,buf,sizeof(buf),0);
             if (n < 0)
             {
                 perror("write to socket");
@@ -872,7 +879,6 @@ void *pthread_utos(void *arg)
             perror("read from uart");
             break;
         }
-        sleep(1);
     }
 
     printf("uart_to_socket exit...\n");  
