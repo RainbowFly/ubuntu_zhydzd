@@ -32,7 +32,7 @@
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
 //定义包大小10KB(上位机定义)
-#define PACK_SIZE 10005
+#define PACK_SIZE 1024*10
 /*define*/
 int cli_fd;//上位机
 int uart_fd1;//control uart signal
@@ -528,20 +528,20 @@ void *pthread_sertocli(void *arg)
 {
     printf("start server to client...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
     //没有出口条件
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(fd,buf,sizeof(buf),0);
-        printf("stc recv t = %d\n", t);
+        recv_data = recv(fd,buf,sizeof(buf),0);
+        printf("stc recv recv_data = %d\n", recv_data);
         //printf("stc recv buf: %s\n",buf);
-        if(t>0)
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
+            if(0 == strncasecmp(buf+4,"quit",4))//忽略大小写匹配
             {
-                n = send(cli_fd,buf,sizeof(buf),0);
+                n = send(cli_fd,buf,recv_data,0);
                 if(n<0)
                 {
                     perror("write to cli");
@@ -549,7 +549,7 @@ void *pthread_sertocli(void *arg)
                 }
                 break;
             }
-            n = send(cli_fd,buf,sizeof(buf),0);
+            n = send(cli_fd,buf,recv_data,0);
             printf("stc send n = %d\n", n);
             //printf("stc send buf: %s\n",buf);
             if(n<0)
@@ -558,12 +558,12 @@ void *pthread_sertocli(void *arg)
                 break;
             }
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("sertocli connect failed!\n");
             break;
         }
-        else if(t<0)
+        else if(recv_data < 0)
         {
             perror("read from server");
             break;
@@ -576,20 +576,20 @@ void *pthread_clitoser(void *arg)
 {
     printf("start client to server...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,sizeof(buf),0);
-        printf("cts recv t = %d\n", t);
+        recv_data = recv(cli_fd,buf,sizeof(buf),0);
+        printf("cts recv recv_data = %d\n", recv_data);
         //printf("cts recv buf: %s\n",buf);
-        if(t>0)
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))//忽略大小写匹配
+            if(0 == strncasecmp(buf+4,"quit",4))//忽略大小写匹配
             {
-                n = send(fd,buf,sizeof(buf),0);
+                n = send(fd,buf,recv_data,0);
                 if(n<0)
                 {
                     perror("write to ser");
@@ -598,7 +598,7 @@ void *pthread_clitoser(void *arg)
                 break;
             }
 
-            n = send(fd,buf,sizeof(buf),0);
+            n = send(fd,buf,recv_data,0);
             printf("cts send n = %d\n", n);
             //printf("cts send buf: %s\n",buf);
             if(n<0)
@@ -607,12 +607,12 @@ void *pthread_clitoser(void *arg)
                 break;
             }
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("clitoser connect failed!\n");
             break;
         }
-        else if(t<0)
+        else if(recv_data < 0)
         {
             perror("read from client");
             break;
@@ -682,20 +682,20 @@ void *pthread_clitocli(void *arg)
 {
     printf("start client to client...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,sizeof(buf),0);
-        printf("ctc recv t = %d\n", t);
+        recv_data = recv(cli_fd,buf,sizeof(buf),0);
+        printf("ctc recv recv_data = %d\n", recv_data);
         //printf("ctc recv buf: %s\n",buf);
-        if(t>0)
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))
+            if(0 == strncasecmp(buf+4,"quit",4))
             {
-                n = send(fd,buf,sizeof(buf),0);
+                n = send(fd,buf,recv_data,0);
                 if(n<0)
                 {
                     perror("write to cli");
@@ -704,7 +704,7 @@ void *pthread_clitocli(void *arg)
                 break;
             }
 
-            n = send(fd,buf,sizeof(buf),0);
+            n = send(fd,buf,recv_data,0);
             printf("ctc send n = %d\n", n);
             //printf("ctc send buf: %s\n",buf);
             if(n<0)
@@ -713,12 +713,12 @@ void *pthread_clitocli(void *arg)
                 break;
             }
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("clitocli connect failed!\n");
             break;
         }
-        else if(t<0)
+        else if(recv_data < 0)
         {
             perror("read from client");
             break;
@@ -731,20 +731,20 @@ void *pthread_clitocli_fd(void *arg)
 {
     printf("start client to client_fd...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(fd,buf,sizeof(buf),0);
-        printf("ctcd recv t = %d\n", t);
+        recv_data = recv(fd,buf,sizeof(buf),0);
+        printf("ctcd recv recv_data = %d\n", recv_data);
         //printf("ctcd recv buf: %s\n",buf);
-        if(t>0)
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))
+            if(0 == strncasecmp(buf+4,"quit",4))
             {
-                n = send(cli_fd,buf,sizeof(buf),0);
+                n = send(cli_fd,buf,recv_data,0);
                 if(n<0)
                 {
                     perror("write to cli_fd");
@@ -753,7 +753,7 @@ void *pthread_clitocli_fd(void *arg)
                 break;
             }
 
-            n = send(cli_fd,buf,sizeof(buf),0);
+            n = send(cli_fd,buf,recv_data,0);
             printf("ctcd send n = %d\n", n);
             //printf("ctcd send buf: %s\n",buf);
             if(n<0)
@@ -762,12 +762,12 @@ void *pthread_clitocli_fd(void *arg)
                 break;
             }
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("clitocli_fd connect failed!\n");
             break;
         }
-        else if(t<0)
+        else if(recv_data < 0)
         {
             perror("read from client");
             break;
@@ -786,19 +786,19 @@ void *pthread_stou(void *arg)
 {
     printf("start socket_to_uart...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = recv(cli_fd,buf,sizeof(buf),0);
-        printf("stu recv t = %d\n", t);
-        if(t > 0)
+        recv_data = recv(cli_fd,buf,sizeof(buf),0);
+        printf("stu recv recv_data = %d\n", recv_data);
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))
+            if(0 == strncasecmp(buf+4,"quit",4))
             {
-                n = write(fd,buf,sizeof(buf));
+                n = write(fd,buf,recv_data);
                 if (n < 0)
                 {
                     perror("write to uart");
@@ -807,7 +807,8 @@ void *pthread_stou(void *arg)
                 break;
             }
 
-            n = write(fd,buf,sizeof(buf));
+            n = write(fd,buf,recv_data);
+            printf("stu send n = %d\n", n);
             if (n < 0)
             {
                 perror("write to uart");
@@ -815,12 +816,12 @@ void *pthread_stou(void *arg)
             }
             //break;
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("stou connect failed!\n");
             break;
         }
-        else if(t < 0)
+        else if(recv_data < 0)
         {
             perror("read from socket");
             break;
@@ -840,19 +841,19 @@ void *pthread_utos(void *arg)
 {
     printf("start uart_to_socket...\n");
     int fd = *(int*)arg;
-    int t = 0,n = 0;
-    char buf[PACK_SIZE] = {0};
+    int recv_data = 0,n = 0;
+    char buf[PACK_SIZE];
 
     while (1)
     {
         memset(buf,0,sizeof(buf));
-        t = read(fd,buf,sizeof(buf));
-        printf("uts read t = %d\n",t);
-        if(t > 0)
+        recv_data = read(fd,buf,sizeof(buf));
+        printf("uts read recv_data = %d\n",recv_data);
+        if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+1,"quit",4))
+            if(0 == strncasecmp(buf+4,"quit",4))
             {
-                n = send(cli_fd,buf,sizeof(buf),0);
+                n = send(cli_fd,buf,recv_data,0);
                 if (n < 0)
                 {
                     perror("write to socket");
@@ -861,7 +862,8 @@ void *pthread_utos(void *arg)
                 break;
             }
 
-            n = send(cli_fd,buf,sizeof(buf),0);
+            n = send(cli_fd,buf,recv_data,0);
+            printf("uts send n = %d\n", n);
             if (n < 0)
             {
                 perror("write to socket");
@@ -869,12 +871,12 @@ void *pthread_utos(void *arg)
             }
             //break;
         }
-        else if(t == 0)
+        else if(recv_data == 0)
         {
             printf("utos connect failed!\n");
             break;
         }
-        else if(t < 0)
+        else if(recv_data < 0)
         {
             perror("read from uart");
             break;
