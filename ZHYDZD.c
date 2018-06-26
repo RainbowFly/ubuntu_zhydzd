@@ -31,8 +31,9 @@
 #define DEVICE1 "/dev/ttyS1"//control uart
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
-//定义包大小10KB(上位机定义)
-#define PACK_SIZE 1024*10
+//定义包大小10KB和1kB(上位机定义)
+#define PACK_SIZE_TCP 1024*10
+#define PACK_SIZE_UART 1024
 /*define*/
 int cli_fd;//上位机
 int uart_fd1;//control uart signal
@@ -52,18 +53,18 @@ void *pthread_clitocli(void *arg);
 void *pthread_clitocli_fd(void *arg);
 void *pthread_stou(void *arg);//RS232
 void *pthread_utos(void *arg);//RS232
-void *pthread_error(void *arg);//error msg to ctl uart
+void *pthread_msg(void *arg);// msg to ctl uart
 
 int main(void)
 {
     int len;//read bite length
     int su = 0;//socket to uart 
     int error = 0;
-    char *cerror = "Connect DaTang server failed!\n";
-    char *cli_connect_error = cerror;
+    char *msg = "Connect DaTang server succeed!\n";
+    char *cli_connect_succeed = msg;
     pthread_t socktouart;//socket to uart
     pthread_t uarttosock;//socket to uart
-    pthread_t cli_error;//client connect error
+    pthread_t cli_msg;//client connect msg
     char *dev1 = DEVICE1;
     char *dev2 = DEVICE2;
     char *dev3 = DEVICE3;
@@ -82,107 +83,105 @@ int main(void)
         cli_fd = socket_cli(IP);//connect da tang server
         if(cli_fd != -1)
         {
-            break;
+            continue;
         }
         else
         {   
-            //send error msg to ctrl uart
-            error = pthread_create(&cli_error,NULL,&(pthread_error),(void *)cli_connect_error);
+            //send  msg to ctrl uart
+            error = pthread_create(&cli_msg,NULL,&(pthread_msg),(void *)cli_connect_succeed);
             sleep(1);
-        }
-    }
-    printf("Connect DaTang succeed!\n");
-    
-    while(1)
-    {
-        system("clear");
-        printf(">****************************************************<\n\n");
-        printf("                  ");
-        printf("\033[43;35m欢迎登录综合路由系统\033[0m\n\n");
-        printf(">****************************************************<\n");
-        //read contrl uart
-        memset(rcv_buf,0,sizeof(rcv_buf));
-        len = uart_recv(uart_fd1,rcv_buf,32);
-        if(len>0)
-        {
-            rcv_buf[len] = '\0';
-            printf("receive data is %s len = %d\n",rcv_buf,len);
-        }
-        else
-        {
-            printf("can't receive data!\n");
-        }
-        strncpy(ctrlrecv,rcv_buf,strlen(rcv_buf));
-        strncpy(ctrlcommand,ctrlrecv,1);//通道
-        strncpy(ctrldata,ctrlrecv+2,strlen(ctrlrecv)-4);//方式
-        printf("ctrlcommand = %s, ctrldata = %s\n",ctrlcommand,ctrldata);
-        if (*(ctrlcommand) == '0')
-        {
-            /*
-            * USB to tcp
-            * need ip
-            * 1.In this department you should connect server or client first
-            * 2.Analyzing conditions is ip
-            */
-            if(*(ctrldata) == '\0')//server
+            while(1)
             {
-               //start server
-                Server_start();
-            }
-            else
-            {
-               //start client
-                Client_start(ctrldata);
+                system("clear");
+                printf(">****************************************************<\n\n");
+                printf("                  ");
+                printf("\033[43;35m欢迎登录综合路由系统\033[0m\n\n");
+                printf(">****************************************************<\n");
+                //read contrl uart
+                memset(rcv_buf,0,sizeof(rcv_buf));
+                len = uart_recv(uart_fd1,rcv_buf,32);
+                if(len>0)
+                {
+                    rcv_buf[len] = '\0';
+                    printf("receive data is %s len = %d\n",rcv_buf,len);
+                }
+                else
+                {
+                    printf("can't receive data!\n");
+                }
+                strncpy(ctrlrecv,rcv_buf,strlen(rcv_buf));
+                strncpy(ctrlcommand,ctrlrecv,1);//通道
+                strncpy(ctrldata,ctrlrecv+2,strlen(ctrlrecv)-4);//方式
+                printf("ctrlcommand = %s  ctrldata = %s\n",ctrlcommand,ctrldata);
+                if (*(ctrlcommand) == '0')
+                {
+                    /*
+                    * USB to tcp
+                    * need ip
+                    * 1.In this department you should connect server or client first
+                    * 2.Analyzing conditions is ip
+                    */
+                    if(*(ctrldata) == '\0')//server
+                    {
+                    //start server
+                        Server_start();
+                    }
+                    else
+                    {
+                    //start client
+                        Client_start(ctrldata);
+                    }
+                }
+                else if (*(ctrlcommand) == '1')
+                {
+                    /*uart to modem
+                    * 1.call target number
+                    * 2.if connect succeed,then you can write or read msg
+                    */
+                    uart_fd3 = open_dev(dev3);
+                    uart_set(uart_fd3,115200,0,8,1,'N');
+
+                    
+                }
+                else if (*(ctrlcommand) == '2')
+                {
+                    /*RS232
+                    * 1.open uart
+                    * 2.then you can read or write
+                    */
+                    uart_fd2 = open_dev(dev2);
+                    uart_set(uart_fd2,115200,0,8,1,'N');
+                    printf("uart2 open succeed!\n");
+                    //创建socket到uart线程
+                    su = pthread_create(&socktouart,NULL,&(pthread_stou),&uart_fd2);
+                    if(su < 0)
+                    {
+                        perror("pthread_stou");
+                        continue; 
+                    }
+                    //创建uart到socket线程
+                    su = pthread_create(&uarttosock,NULL,&(pthread_utos),&uart_fd2);
+                    if(su < 0)
+                    {
+                        perror("pthread_utos");
+                        continue;
+                    }
+
+                    pthread_join(socktouart,NULL); // 等待线程退出  
+                    pthread_join(uarttosock,NULL);
+
+                    close(uart_fd2);
+                    printf("RS232 exit...\n");
+
+                }
+                else
+                    printf("Wrong input!\n");
+                    //break;
+                memset(ctrlrecv,0,sizeof(ctrlrecv));
+                memset(ctrldata,0,sizeof(ctrldata));
+                memset(ctrlcommand,0,sizeof(ctrlcommand));
             }
         }
-        else if (*(ctrlcommand) == '1')
-        {
-            /*uart to modem
-            * 1.call target number
-            * 2.if connect succeed,then you can write or read msg
-            */
-            uart_fd3 = open_dev(dev3);
-            uart_set(uart_fd3,115200,0,8,1,'N');
-
-            
-        }
-        else if (*(ctrlcommand) == '2')
-        {
-            /*RS232
-            * 1.open uart
-            * 2.then you can read or write
-            */
-            uart_fd2 = open_dev(dev2);
-            uart_set(uart_fd2,115200,0,8,1,'N');
-            printf("uart2 open succeed!\n");
-            //创建socket到uart线程
-            su = pthread_create(&socktouart,NULL,&(pthread_stou),&uart_fd2);
-            if(su < 0)
-            {
-                perror("pthread_stou");
-                continue; 
-            }
-            //创建uart到socket线程
-            su = pthread_create(&uarttosock,NULL,&(pthread_utos),&uart_fd2);
-            if(su < 0)
-            {
-                perror("pthread_utos");
-                continue;
-            }
-
-            pthread_join(socktouart,NULL); // 等待线程退出  
-            pthread_join(uarttosock,NULL);
-
-            close(uart_fd2);
-            printf("RS232 exit...\n");
-
-        }
-        else
-            printf("Wrong input!\n");
-            //break;
-        memset(ctrlrecv,0,sizeof(ctrlrecv));
-        memset(ctrldata,0,sizeof(ctrldata));
-        memset(ctrlcommand,0,sizeof(ctrlcommand));
     }
     return 0;
 }
@@ -529,8 +528,8 @@ void *pthread_sertocli(void *arg)
     printf("start server to client...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
-    //没有出口条件
+    char buf[PACK_SIZE_TCP];
+
     while (1)
     {
         memset(buf,0,sizeof(buf));
@@ -539,16 +538,6 @@ void *pthread_sertocli(void *arg)
         //printf("stc recv buf: %s\n",buf);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))//忽略大小写匹配
-            {
-                n = send(cli_fd,buf,recv_data,0);
-                if(n<0)
-                {
-                    perror("write to cli");
-                    break;
-                }
-                break;
-            }
             n = send(cli_fd,buf,recv_data,0);
             printf("stc send n = %d\n", n);
             //printf("stc send buf: %s\n",buf);
@@ -577,7 +566,7 @@ void *pthread_clitoser(void *arg)
     printf("start client to server...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
+    char buf[PACK_SIZE_TCP];
 
     while (1)
     {
@@ -587,17 +576,6 @@ void *pthread_clitoser(void *arg)
         //printf("cts recv buf: %s\n",buf);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))//忽略大小写匹配
-            {
-                n = send(fd,buf,recv_data,0);
-                if(n<0)
-                {
-                    perror("write to ser");
-                    break;
-                }
-                break;
-            }
-
             n = send(fd,buf,recv_data,0);
             printf("cts send n = %d\n", n);
             //printf("cts send buf: %s\n",buf);
@@ -683,7 +661,7 @@ void *pthread_clitocli(void *arg)
     printf("start client to client...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
+    char buf[PACK_SIZE_TCP];
 
     while (1)
     {
@@ -693,17 +671,6 @@ void *pthread_clitocli(void *arg)
         //printf("ctc recv buf: %s\n",buf);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))
-            {
-                n = send(fd,buf,recv_data,0);
-                if(n<0)
-                {
-                    perror("write to cli");
-                    break;
-                }
-                break;
-            }
-
             n = send(fd,buf,recv_data,0);
             printf("ctc send n = %d\n", n);
             //printf("ctc send buf: %s\n",buf);
@@ -732,7 +699,7 @@ void *pthread_clitocli_fd(void *arg)
     printf("start client to client_fd...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
+    char buf[PACK_SIZE_TCP];
 
     while (1)
     {
@@ -742,17 +709,6 @@ void *pthread_clitocli_fd(void *arg)
         //printf("ctcd recv buf: %s\n",buf);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))
-            {
-                n = send(cli_fd,buf,recv_data,0);
-                if(n<0)
-                {
-                    perror("write to cli_fd");
-                    break;
-                }
-                break;
-            }
-
             n = send(cli_fd,buf,recv_data,0);
             printf("ctcd send n = %d\n", n);
             //printf("ctcd send buf: %s\n",buf);
@@ -787,7 +743,7 @@ void *pthread_stou(void *arg)
     printf("start socket_to_uart...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
+    char buf[PACK_SIZE_UART];
 
     while (1)
     {
@@ -796,17 +752,6 @@ void *pthread_stou(void *arg)
         printf("stu recv recv_data = %d\n", recv_data);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))
-            {
-                n = write(fd,buf,recv_data);
-                if (n < 0)
-                {
-                    perror("write to uart");
-                    break;
-                }
-                break;
-            }
-
             n = write(fd,buf,recv_data);
             printf("stu send n = %d\n", n);
             if (n < 0)
@@ -842,7 +787,7 @@ void *pthread_utos(void *arg)
     printf("start uart_to_socket...\n");
     int fd = *(int*)arg;
     int recv_data = 0,n = 0;
-    char buf[PACK_SIZE];
+    char buf[PACK_SIZE_UART];
 
     while (1)
     {
@@ -851,17 +796,6 @@ void *pthread_utos(void *arg)
         printf("uts read recv_data = %d\n",recv_data);
         if(recv_data > 0)
         {
-            if(0 == strncasecmp(buf+4,"quit",4))
-            {
-                n = send(cli_fd,buf,recv_data,0);
-                if (n < 0)
-                {
-                    perror("write to socket");
-                    break;
-                }
-                break;
-            }
-
             n = send(cli_fd,buf,recv_data,0);
             printf("uts send n = %d\n", n);
             if (n < 0)
@@ -887,14 +821,14 @@ void *pthread_utos(void *arg)
     pthread_exit(0);
 }
 /************************************************************************************** 
- *  Description:收集错误信息发送给控制串口 ,暂无使用
+ *  Description:收集信息发送给控制串口
  *   Input Args: 
  *  Output Args: 
  * Return Value: 
  *************************************************************************************/
-void *pthread_error(void *arg)
+void *pthread_msg(void *arg)
 {
-    printf("start pthread_error\n");
+    printf("start pthread_msg\n");
     char *str;
     str = arg;
     int n = 0;
@@ -902,8 +836,8 @@ void *pthread_error(void *arg)
     n = write(uart_fd1,str,32);
     if(n<0)
     {
-        perror("Error write");
+        perror("pthread_msg write Error");
     }
-    printf("pthread_error over!\n");
+    printf("pthread_msg over!\n");
     pthread_exit(0);
 }
