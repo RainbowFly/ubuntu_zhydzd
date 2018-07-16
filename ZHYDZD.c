@@ -37,16 +37,21 @@
 /*define*/
 int cli_fd;//上位机
 int uart_fd1;//control uart signal
-int uart_fd2;
-int uart_fd3;
+int uart_fd2;//RS232
+int uart_fd3;//modem
 //网络中断线程终止标识
 static int stu_exit = 1;
 static int uts_exit = 1;
+
+/*标准波特率设置*/    
+static int speed_arr[] = { B230400, B115200, B57600, B38400, B19200, B9600, B4800, B2400, B1800, B1200, B600, B300};    
+static int name_arr[] = {230400, 115200,  57600, 38400, 19200,  9600, 4800,  2400,  1800, 1200,  600, 300};  
 
 /*function*/
 int socket_cli(char *ip);
 int open_dev(char *dev);
 int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity);
+int uart_send(int fd,char *send_buf,int data_len);
 int uart_recv(int fd,char *buff,int data_len);
 int Server_start(void);
 void *pthread_sertocli(void *arg);
@@ -57,6 +62,10 @@ void *pthread_clitocli_fd(void *arg);
 void *pthread_stou(void *arg);//RS232
 void *pthread_utos(void *arg);//RS232
 void *pthread_msg(void *arg);// msg to ctl uart
+int Modem_answer(void);
+int Modem_call(char *num);
+void *pthread_utos_m(void *arg)
+void *pthread_stou_m(void *arg)
 
 int main(void)
 {
@@ -65,10 +74,12 @@ int main(void)
     int slock = 1;
     int flock = 0;
     int stats = 0;
-    char msg_DT_su[] = "Connect DaTang server succeed!\n";
-    char msg_DT_fa[] = "Connect DaTang server failed!\n";
-    char msg_ctrluart_su[] = "Open contrl uart succeed!\n";
-    char msg_ctrluart_fa[] = "Open contrl uart failed!\n";
+    char msg_DT_su[] = "连接大唐路由成功！\n";
+    char msg_DT_fa[] = "连接大唐路由失败！\n";
+    char msg_ctrluart_su[] = "打开控制串口成功！\n";
+    char msg_ctrluart_fa[] = "打开控制串口失败！\n";
+    char msg_at[] = "请重新拨号或接听！\n";
+    char msg_at_cut[] = "断开连接！\n";
     //char *cli_connect_succeed = msg;
     pthread_t socktouart;//socket to uart
     pthread_t uarttosock;//socket to uart
@@ -99,7 +110,7 @@ int main(void)
             sleep(1);
             continue;
         }
-        for(;;)//循环连接
+        while(uart_fd1 > 0)//循环连接
         {
             system("clear");//调试清屏
             cli_fd = socket_cli(IP);//connect da tang server
@@ -169,7 +180,35 @@ int main(void)
                         */
                         uart_fd3 = open_dev(dev3);
                         uart_set(uart_fd3,115200,0,8,1,'N');
+                        
+                        while(uart_fd3)
+                        {
+                            /*answer*/
+                            if (*(ctrldata) == '\0') 
+                            {
+                                /* code */
+                                int ma = Modem_answer();
+                                if (ma == -1)
+                                {
+                                    /* code */
+                                    write(uart_fd1,msg_at,sizeof(msg_at));
+                                }
+                                else
+                                {
+                                    /* code */
+                                    write(uart_fd1,msg_at_cut,sizeof(msg_at_cut));
+                                }
 
+                            }
+                            /*call*/
+                            else
+                            {
+                                /* code */
+                                Modem_call(ctrldata);
+
+                            }
+                            
+                        }
                         
                     }
                     else if (*(ctrlcommand) == '2')
@@ -302,10 +341,6 @@ int open_dev(char *dev)
  **************************************************************************************/
 int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity)
 {
-    int i;
-    int status;
-    int speed_arr[] = {B115200, B19200, B9600, B4800, B2400, B1200, B300};
-    int name_arr[] = {115200,  19200,  9600,  4800,  2400,  1200,  300};
 
     struct termios options;
     /*tcgetattr(fd,&options)得到与fd指向对象的相关参数，并将它们保存于options,
@@ -318,7 +353,7 @@ int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity
     }
     
     //设置串口输入波特率和输出波特率
-    for ( i = 0; i < sizeof(speed_arr) / sizeof(int); i++)
+    for ( int i = 0; i < sizeof(speed_arr) / sizeof(int); i++)
     {
         if  (speed == name_arr[i])
         {             
@@ -428,6 +463,39 @@ int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity
     return 0;     
 }
 
+/*************************************************************************************  
+ * 名称：uart_send 
+ * 功能：像串口发送数据  
+ * 入口参数：fd:文件描述符      
+ *          send_buf:存放串口发送数据  
+ *          data_len:一帧数据的个数  
+ * 出口参数：正确返回为1，错误返回为0  
+*************************************************************************************/
+int uart_send(int fd, char *send_buf,int data_len)    
+{    
+    int len = 0;    
+       
+    len = write(fd,send_buf,data_len);    
+    if (len == data_len )    
+    {    
+        printf("send data is %s\n",send_buf);  
+        return len;    
+    }         
+    else       
+    {    
+        tcflush(fd,TCOFLUSH);    
+        return -1;    
+    }    
+}
+
+/**************************************************************************************  
+ * 名称：uart_recv 
+ * 功能：接收串口数据  
+ * 入口参数：fd :文件描述符      
+ * rcv_buf: 接收串口中数据存入rcv_buf缓冲区中  
+ * data_len:一帧数据的长度  
+ * 出口参数：正确返回为1，错误返回为0  
+***************************************************************************************/  
 int uart_recv(int fd,char *buff,int data_len)
 {
     int len,fs_sel;    
@@ -474,7 +542,7 @@ int Server_start(void)
     
     server.sin_family = AF_INET;                       //指定协议族 
     server.sin_addr.s_addr = htons(INADDR_ANY);        //指定接收消息的机器  INADDR_ANY->listen all
-    server.sin_port = htons(LOCALPORT);              //绑定套接字端口
+    server.sin_port = htons(LOCALPORT);                //绑定套接字端口
 
     sockSev_fd = socket(AF_INET,SOCK_STREAM,0);
     if(sockSev_fd < 0)
@@ -761,6 +829,406 @@ void *pthread_clitocli_fd(void *arg)
     }
     printf("client to client_fd exit!\n");  
     pthread_exit(0);    
+}
+
+/************************************************************************************** 
+ *  Description:modem线路摘机应答 
+ *   Input Args: 
+ *  Output Args: 
+ * Return Value: 
+ *************************************************************************************/ 
+int Modem_answer(void)
+{
+    int at = 0;
+    char command_at[] = "AT\r";
+    char at_recv[16];
+    char answer_at[] = "ATA\r";
+    char num_recv[64]; 
+    char speed_buf[32];
+    char *baud = speed_buf;
+    int an = 0;
+    pthread_t rec, sen;
+
+    /*send at command*/
+    for (int i = 0; i < 3; i++)
+    {
+        at = uart_send(uart_fd3,command_at,strlen(command_at));
+        if(at > 0)
+        {
+            printf("Send at succeed!\n");
+            break;
+        }
+        else
+        {
+            printf("Send at failed!\n");
+            sleep(1);
+            if(i == 2)
+            {
+                return -1;
+            }
+            continue;
+        }
+    }
+
+    /*接收at反回值*/
+    while(uart_fd3 && an == 0)
+    {
+        memset(at_recv,0,sizeof(at_recv));
+        int len = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
+        if(len > 0)
+        {
+            printf("Recv data: %s\ndata len: %d\n",at_recv,len);
+            //判断接收内容
+            int cmp = strncasecmp(at_recv+5,"OK",2);
+            //判断有无ring——没有则等待被呼叫
+            memset(at_recv,0,sizeof(at_recv));
+            while(cmp == 0)
+            {
+                /* code */
+                int ring = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
+                if (ring > 0) 
+                {
+                    /* code */
+                    printf("Recv data: %s\n",at_recv);
+                    int cc = strncasecmp(at_recv+2,"RING",4);
+                    if(cc==0)
+                    {
+                        break;
+                    }
+                }
+                else 
+                {
+                    /* code */
+                    printf("No ring!\n");
+                    continue;
+                }
+                sleep(1);
+
+            }
+
+            int ii = 0;
+            while(ii < 3 && an == 0)
+            {
+                int n = uart_send(uart_fd3,answer_at,sizeof(answer_at));
+                
+                if (n > 0) 
+                {
+                    /* code */
+                    printf("Answer succeed!\n\n");
+
+                    //判断返回的内容
+                    int nn = 0;
+                    while(n && nn < 8)
+                    {
+                        /* code */
+                        memset(num_recv,0,sizeof(num_recv));
+                        int r = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
+                        if(r > 0)
+                        {
+                            printf("num_recv: %s\nlen: %d\n",num_recv,r);
+                            int c = strncasecmp(num_recv+2,"CONNECT",7);
+                            //判断是否连接成功
+                            if (c == 0) 
+                            {
+                                /* code */
+                                memset(speed_buf,0,sizeof(speed_buf));
+                                strncpy(speed_buf,num_recv+10,strlen(num_recv)-10);
+                                an = strlen(speed_buf);
+                                printf("Best bause: %s\n",speed_buf);
+                                /*创建收发线程*/
+                                int re = pthread_create(&rec,NULL,&(uart_stou_m),baud);
+                                if(re < 0)
+                                {
+                                    perror("pthread_create rec(answer)");
+                                }
+
+                                int se = pthread_create(&sen,NULL,&(uart_utos_m),baud);
+                                if (se < 0) 
+                                {
+                                    perror("pthread_create sen(answer)");
+                                }
+                                
+                                pthread_join(rec,NULL);
+                                pthread_join(sen,NULL);
+
+                                break;
+                            }
+                            else 
+                            {
+                                /* code */
+                                printf("Connect failed!(answer)\n");
+                            }
+                            
+                        }
+                        else
+                        {
+                            printf("No data!(answer)\n");
+                        }
+                        nn++;
+                        sleep(1);
+                    }
+                    
+                }
+                else 
+                {
+                    /* code */
+                    printf("Answer failed!\n");
+                }
+                ii++;
+                sleep(1);
+            }
+        }
+        else
+        {
+            /* code */
+            printf("Can't recv data!(answer)\n");
+        }
+        sleep(1);
+        break;
+    }
+    
+    if (an != 0) {
+        /* code */
+        printf("连接成功!\n");
+    }
+    else {
+        /* code */
+        printf("连接失败!\n");
+    }
+    close(uart_fd3);
+    return 0;
+}
+/************************************************************************************** 
+ *  Description:modem线路呼叫
+ *   Input Args: 
+ *  Output Args: 
+ * Return Value: 
+ *************************************************************************************/
+int Modem_call(char *num)
+{
+    int at = 0;
+    char command_at[] = "AT\r";
+    char at_recv[16];
+    char call_at[] = "ATD"+num+"\r";
+    char num_recv[64]; 
+    char speed_buf[32];
+    char *baud = speed_buf;
+    int ca = 0;
+    pthread_t rec, sen;
+
+    /*接收at反回值*/
+    int cc = 0;
+    while(uart_fd3 && ca == 0 && cc < 3)
+    {
+        /*send at command*/
+        at = uart_send(uart_fd3,command_at,strlen(command_at));
+        if(at > 0)
+        {
+            printf("Send at succeed!\n");
+            memset(at_recv,0,sizeof(at_recv));
+            int len = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
+            if(len > 0)
+            {
+                printf("Recv data: %s\ndata len: %d\n",at_recv,len);
+                //判断接收内容
+                int cmp = strncasecmp(at_recv+5,"OK",2);
+                if (cmp != 0) 
+                {
+                    /* code */
+                    printf("Modem is not OK!\n(call)");
+                }
+                else 
+                {
+                    /* code */
+                    int ii = 0;
+                    while(ii < 3 && ca == 0)
+                    {
+                        int n = uart_send(uart_fd3,call_at,sizeof(call_at));
+                        if (n > 0) 
+                        {
+                            /* code */
+                            printf("Call %s succeed!\n\n",num);
+
+                            //判断返回的内容
+                            int nn = 0;
+                            while(n && nn < 8)
+                            {
+                                /* code */
+                                memset(num_recv,0,sizeof(num_recv));
+                                int r = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
+                                if(r > 0)
+                                {
+                                    printf("num_recv: %s\nlen: %d\n",num_recv,r);
+                                    int c = strncasecmp(num_recv+2,"CONNECT",7);
+                                    //判断是否连接成功
+                                    if (c == 0) 
+                                    {
+                                        /* code */
+                                        memset(speed_buf,0,sizeof(speed_buf));
+                                        strncpy(speed_buf,num_recv+10,strlen(num_recv)-10);
+                                        ca = strlen(speed_buf);
+                                        printf("Best bause: %s\n",speed_buf);
+                                        /*创建收发线程*/
+                                        int re = pthread_create(&rec,NULL,&(uart_stou_m),baud);
+                                        if(re < 0)
+                                        {
+                                            perror("pthread_create rec(call)");
+                                        }
+
+                                        int se = pthread_create(&sen,NULL,&(uart_utos_m),baud);
+                                        if (se < 0) 
+                                        {
+                                            perror("pthread_create sen(call)");
+                                        }
+                                        
+                                        pthread_join(rec,NULL);
+                                        pthread_join(sen,NULL);
+                                        break;
+                                    }
+                                    else 
+                                    {
+                                        /* code */
+                                        printf("Connect failed!(call)\n");
+                                    }
+                                    
+                                }
+                                else
+                                {
+                                    printf("No data(Call)!\n");
+                                }
+                                nn++;
+                                sleep(1);
+                            }
+                            
+                        }
+                        else 
+                        {
+                            /* code */
+                            printf("Call %s failed!\n",num);
+                        }
+                        ii++;
+                        sleep(1);
+                    }
+                }
+            }
+            else
+            {
+                /* code */
+                printf("Can't recv data!\n(call)");
+            }
+            cc++;
+            sleep(1);
+        }
+        else
+        {
+            printf("Send at failed!\n");
+            sleep(1);
+            if(cc < 3)
+            {
+                continue;
+            }
+            return -1;
+        }
+    }
+    
+    if (ca != 0) {
+        /* code */
+        printf("连接成功!\n");
+    }
+    else {
+        /* code */
+        printf("连接失败!\n");
+    }
+    close(uart_fd3);
+    return 0;    
+}
+/************************************************************************************** 
+ *  Description:接收socket数据并通过串口转发 ----- modem线路
+ *   Input Args: 
+ *  Output Args: 
+ * Return Value: 
+ *************************************************************************************/ 
+void *pthread_stou_m(void *arg)
+{
+    printf("start socket_to_uart_modem...\n");
+    char spd = *(char*)arg;
+    int speed = atoi(spd);
+    char buf[speed];
+
+    while (1)
+    {
+        memset(buf,0,sizeof(buf));
+        int recv_data = recv(cli_fd,buf,sizeof(buf),0);
+        printf("stu(m) recv recv_data = %d\n", recv_data);
+        if(recv_data > 0)
+        {
+            int n = write(uart_fd3,buf,recv_data);
+            printf("stu(m) send n = %d\n", n);
+            if (n < 0)
+            {
+                perror("write to uart(m)");
+                break;
+            }
+            //break;
+        }
+        else if(recv_data == 0)
+        {
+            printf("stou connect failed!(m)\n");
+            break;
+        }
+        else if(recv_data < 0)
+        {
+            perror("read from socket!(m)");
+            break;
+        }
+    }
+    printf("stu_exit = %d\n",stu_exit);
+    printf("socket_to_uart_modem exit...\n");  
+    pthread_exit(0);
+}
+/************************************************************************************** 
+ *  Description:接收串口数据并通过socket转发 ------ modem 线路
+ *   Input Args: 
+ *  Output Args: 
+ * Return Value: 
+ *************************************************************************************/
+void *pthread_utos_m(void *arg)
+{
+    printf("start uart_to_socket_modem...\n");
+    char spd = *(char*)arg;
+    int speed = atoi(spd);
+    char buf[speed];
+
+    while (1)
+    {
+        memset(buf,0,sizeof(buf));
+        int recv_data = read(uart_fd3,buf,sizeof(buf));
+        printf("uts(m) read recv_data = %d\n",recv_data);
+        if(recv_data > 0)
+        {
+            int n = send(cli_fd,buf,recv_data,0);
+            printf("uts(m) send n = %d\n", n);
+            if (n < 0)
+            {
+                perror("write to socket(m)");
+                break;
+            }
+            //break;
+        }
+        else if(recv_data == 0)
+        {
+            printf("utos connect failed!(m)\n");
+            break;
+        }
+        else if(recv_data < 0)
+        {
+            perror("read from uart!(m)");      
+            break;
+        }
+    }
+
+    printf("uart_to_socket_modem exit...\n");  
+    pthread_exit(0);
 }
 /************************************************************************************** 
  *  Description:接收socket数据并通过串口转发 
