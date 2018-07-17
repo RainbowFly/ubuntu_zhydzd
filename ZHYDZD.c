@@ -32,7 +32,7 @@
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
 //定义包大小10KB和1kB(上位机定义)
-#define PACK_SIZE_TCP 1024*10
+#define PACK_SIZE_TCP 1024*100
 #define PACK_SIZE_UART 1024
 /*define*/
 int cli_fd;//上位机
@@ -92,6 +92,8 @@ int main(void)
     char ctrlrecv[64] = {0};
     char ctrlcommand[8] = {0};
     char ctrldata[16] = {0};
+    //传输速率，测试
+    char chuanshu[] = "102400";
 
     /*connect da tang and open contrl uart*/
     for(;;)
@@ -107,6 +109,7 @@ int main(void)
         {
             printf("Open contrl uart failed,try again...\n");
             write(uart_fd1,msg_ctrluart_fa,sizeof(msg_ctrluart_fa));
+            close(uart_fd1);
             sleep(1);
             continue;
         }
@@ -161,6 +164,9 @@ int main(void)
                         * 1.In this department you should connect server or client first
                         * 2.Analyzing conditions is ip
                         */
+                       //测试使用
+                        write(uart_fd1,chuanshu,strlen(chuanshu));
+
                         if(*(ctrldata) == '\0')//server
                         {
                         //start server
@@ -186,13 +192,11 @@ int main(void)
                         {
                             /* code */
                             int ma = Modem_answer();
-                            if (ma == -1)
-                            {
+                            if (ma == -1){
                                 /* code */
                                 write(uart_fd1,msg_at,sizeof(msg_at));
                             }
-                            else
-                            {
+                            else{
                                 /* code */
                                 write(uart_fd1,msg_at_cut,sizeof(msg_at_cut));
                             }
@@ -202,7 +206,17 @@ int main(void)
                         else
                         {
                             /* code */
-                            Modem_call(ctrldata);
+                            int mc = Modem_call(ctrldata);
+                            
+                            if (mc == -1) {
+                                /* code */
+                                write(uart_fd1,msg_at,sizeof(msg_at));
+                            }
+                            else {
+                                /* code */
+                                write(uart_fd1,msg_at_cut,sizeof(msg_at_cut));
+                            }
+                            
 
                         }
 
@@ -511,7 +525,7 @@ int uart_recv(int fd,char *buff,int data_len)
     if(fs_sel)    
     {    
         len = read(fd,buff,data_len);    
-        printf("I got it! fs_sel = %d\n",fs_sel);    
+        //printf("I got it! fs_sel = %d\n",fs_sel);    
         return len;    
     }    
     else    
@@ -843,6 +857,7 @@ int Modem_answer(void)
     char speed_buf[32];
     char *baud = speed_buf;
     int an = 0;
+    int cc = 0;
     pthread_t rec, sen;
 
     /*接收at反回值*/
@@ -851,6 +866,7 @@ int Modem_answer(void)
     {
          /*send at command*/
         at = uart_send(uart_fd3,command_at,strlen(command_at));
+        sleep(2);
         if(at > 0)
         {
             printf("Send at succeed!\n");
@@ -871,7 +887,7 @@ int Modem_answer(void)
                     {
                         /* code */
                         printf("Recv data: %s\n",at_recv);
-                        int cc = strncasecmp(at_recv+2,"RING",4);
+                        cc = strncasecmp(at_recv+2,"RING",4);
                         if(cc==0)
                         {
                             break;
@@ -881,13 +897,13 @@ int Modem_answer(void)
                     {
                         /* code */
                         printf("No ring!\n");
+                        sleep(1);
                         continue;
                     }
-                    sleep(1);
                 }
-
+                sleep(1);
                 int ii = 0;
-                while(cmp == 0 && ii < 3 && an == 0)
+                while(cc == 0 && ii < 3 && an == 0 && cmp == 0)
                 {
                     int n = uart_send(uart_fd3,answer_at,sizeof(answer_at));
                     
@@ -895,7 +911,7 @@ int Modem_answer(void)
                     {
                         /* code */
                         printf("Answer succeed!\n\n");
-
+                        sleep(2);
                         //判断返回的内容
                         int nn = 0;
                         while(n && nn < 8)
@@ -912,10 +928,10 @@ int Modem_answer(void)
                                 {
                                     /* code */
                                     memset(speed_buf,0,sizeof(speed_buf));
-                                    strncpy(speed_buf,num_recv+10,strlen(num_recv)-10);
+                                    strncpy(speed_buf,num_recv+10,6);
                                     an = strlen(speed_buf);
                                     printf("Best bause: %s\n",speed_buf);
-                                    write(uart_fd1,speed_buf,sizeof(speed_buf));//发送包大大小到控制串口
+                                    write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
                                     /*创建收发线程*/
                                     int re = pthread_create(&rec,NULL,&(pthread_stou_m),baud);
                                     if(re < 0)
@@ -981,11 +997,11 @@ int Modem_answer(void)
     
     if (an != 0) {
         /* code */
-        printf("连接成功!\n");
+        printf("应答连接成功!\n");
     }
     else {
         /* code */
-        printf("连接失败!\n");
+        printf("应答连接失败!\n");
     }
     close(uart_fd3);
     return 0;
@@ -1016,13 +1032,14 @@ int Modem_call(char *num)
     printf("call_at: %s\n",call_at);
 
     int cc = 0;
-    while(uart_fd3 && ca == 0 && cc < 3)
+    while(uart_fd3 && ca == 0 && cc < 1)
     {
         /*send at command*/
         at = uart_send(uart_fd3,command_at,strlen(command_at));
         if(at > 0)
         {
             printf("Send at succeed!\n");
+            sleep(2);
             memset(at_recv,0,sizeof(at_recv));
             int len = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
             if(len > 0)
@@ -1039,17 +1056,17 @@ int Modem_call(char *num)
                 {
                     /* code */
                     int ii = 0;
-                    while(ii < 3 && ca == 0)
+                    while(ii < 1 && ca == 0)
                     {
-                        int n = uart_send(uart_fd3,call_at,sizeof(call_at));
+                        int n = uart_send(uart_fd3,call_at,strlen(call_at));
                         if (n > 0) 
                         {
                             /* code */
                             printf("Call %s succeed!\n\n",num);
-
+                            sleep(1);
                             //判断返回的内容
                             int nn = 0;
-                            while(n && nn < 8)
+                            while(n && nn < 1)
                             {
                                 /* code */
                                 memset(num_recv,0,sizeof(num_recv));
@@ -1063,10 +1080,10 @@ int Modem_call(char *num)
                                     {
                                         /* code */
                                         memset(speed_buf,0,sizeof(speed_buf));
-                                        strncpy(speed_buf,num_recv+10,strlen(num_recv)-10);
+                                        strncpy(speed_buf,num_recv+10,6);
                                         ca = strlen(speed_buf);
                                         printf("Best bause: %s\n",speed_buf);
-                                        write(uart_fd1,speed_buf,sizeof(speed_buf));//发送包大大小到控制串口
+                                        write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
                                         /*创建收发线程*/
                                         int re = pthread_create(&rec,NULL,&(pthread_stou_m),baud);
                                         if(re < 0)
@@ -1095,7 +1112,7 @@ int Modem_call(char *num)
                                 {
                                     printf("No data(Call)!\n");
                                 }
-                                nn++;
+                                //nn++;
                                 sleep(1);
                             }
                             
@@ -1133,11 +1150,11 @@ int Modem_call(char *num)
     
     if (ca != 0) {
         /* code */
-        printf("连接成功!\n");
+        printf("呼叫连接成功!\n");
     }
     else {
         /* code */
-        printf("连接失败!\n");
+        printf("呼叫连接失败!\n");
     }
     close(uart_fd3);
     return 0;    
@@ -1154,7 +1171,9 @@ void *pthread_stou_m(void *arg)
     char *spd = (char*)arg;
     int speed = atoi(spd);
     char buf[speed];
-
+    int aaa = sizeof(buf);
+    //printf("speed: %d\n",speed);
+    printf("buf len: %d\n",aaa);
     while (1)
     {
         memset(buf,0,sizeof(buf));
