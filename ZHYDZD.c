@@ -32,7 +32,7 @@
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
 //定义包大小10KB和1kB(上位机定义)
-#define PACK_SIZE_TCP 1024*100
+#define PACK_SIZE_TCP 1024*10
 #define PACK_SIZE_UART 1024
 /*define*/
 int cli_fd;//上位机
@@ -92,8 +92,6 @@ int main(void)
     char ctrlrecv[64] = {0};
     char ctrlcommand[8] = {0};
     char ctrldata[16] = {0};
-    //传输速率，测试
-    char chuanshu[] = "102400";
 
     /*connect da tang and open contrl uart*/
     for(;;)
@@ -156,7 +154,7 @@ int main(void)
                     strncpy(ctrlcommand,ctrlrecv,1);//通道
                     strncpy(ctrldata,ctrlrecv+2,strlen(ctrlrecv)-2);//方式
                     printf("ctrlcommand = %s  ctrldata = %s\n",ctrlcommand,ctrldata);
-                    if (*(ctrlcommand) == '0')
+                    if (*(ctrlcommand) == '0' && cli_fd > 0)
                     {
                         /*
                         * USB to tcp
@@ -164,8 +162,6 @@ int main(void)
                         * 1.In this department you should connect server or client first
                         * 2.Analyzing conditions is ip
                         */
-                       //测试使用
-                        write(uart_fd1,chuanshu,strlen(chuanshu));
 
                         if(*(ctrldata) == '\0')//server
                         {
@@ -178,7 +174,7 @@ int main(void)
                             Client_start(ctrldata);
                         }
                     }
-                    else if (*(ctrlcommand) == '1')
+                    else if (*(ctrlcommand) == '1' && cli_fd > 0)
                     {
                         /*uart to modem
                         * 1.call target number
@@ -221,7 +217,7 @@ int main(void)
                         }
 
                     }
-                    else if (*(ctrlcommand) == '2')
+                    else if (*(ctrlcommand) == '2' && cli_fd > 0)
                     {
                         /*RS232
                         * 1.open uart
@@ -257,10 +253,11 @@ int main(void)
                     memset(ctrldata,0,sizeof(ctrldata));
                     memset(ctrlcommand,0,sizeof(ctrlcommand));
                 }
+                write(uart_fd1,msg_DT_fa,sizeof(msg_DT_fa));
             }
         }
     }    
-    
+
     return 0;
 }
 
@@ -545,7 +542,7 @@ int Server_start(void)
     int sockSev_fd;
     struct sockaddr_in server;
     struct sockaddr_in client;
-    int connfd = 0;
+    int *connfd;
     pthread_t thread1,thread2;
 
     bzero(&server,sizeof(server));   
@@ -592,43 +589,42 @@ int Server_start(void)
     while (1)
     {
         int c=sizeof(client);
-        connfd=accept(sockSev_fd,(struct sockaddr *)&client,&c);
-        if(connfd==-1)
+        connfd = malloc(sizeof(int));//防止在两个线程中同时操作一个描述符
+        *connfd=accept(sockSev_fd,(struct sockaddr *)&client,&c);
+        if(*connfd==-1)
         {
             perror("accept");
-            close(connfd);
             close(sockSev_fd);
             return -1;
         }
         printf("accept....\n");
         int p = 0;
-        p = pthread_create(&thread1,NULL,&(pthread_sertocli),&connfd);
+        p = pthread_create(&thread1,NULL,&(pthread_sertocli),connfd);
         if(p < 0)
         {
             perror("pthread_sertocli");
             return -1;
         }
-        else
+        /*else
         {
             printf("pthread_sertocli create...\n");
-        }
+        }*/
 
         int s = 0;
-        s = pthread_create(&thread2,NULL,&(pthread_clitoser),&connfd);
+        s = pthread_create(&thread2,NULL,&(pthread_clitoser),connfd);
         if (s < 0) 
         {
             perror("pthread_clitoser");
             return -1;
         }
-        else
+        /*else
         {
             printf("pthread_clitoser create...\n");
-        }
+        }*/
         pthread_join(thread1,NULL);
         pthread_join(thread2,NULL);
         break;
     }
-    close(connfd);
     close(sockSev_fd);
 }
 void *pthread_sertocli(void *arg)
@@ -667,6 +663,7 @@ void *pthread_sertocli(void *arg)
         }
     }
     printf("server to client exit!\n");  
+    close(fd);//释放主线程分配的存储模块
     pthread_exit(0); 
 }
 void *pthread_clitoser(void *arg)
@@ -705,6 +702,7 @@ void *pthread_clitoser(void *arg)
         }
     }
     printf("client to server exit!\n");  
+    close(fd);
     pthread_exit(0); 
 }
 /************************************************************************************** 
@@ -946,6 +944,7 @@ int Modem_answer(void)
                                     }
                                     
                                     pthread_join(rec,NULL);
+                                    pthread_cancel(sen);
                                     pthread_join(sen,NULL);
                                     break;
                                 }
@@ -1050,7 +1049,7 @@ int Modem_call(char *num)
                 if (cmp != 0) 
                 {
                     /* code */
-                    printf("Modem is not OK!\n(call)");
+                    printf("Modem is not OK!(call)\n");
                 }
                 else 
                 {
@@ -1063,7 +1062,7 @@ int Modem_call(char *num)
                         {
                             /* code */
                             printf("Call %s succeed!\n\n",num);
-                            sleep(1);
+                            
                             //判断返回的内容
                             int nn = 0;
                             while(n && nn < 1)
@@ -1071,6 +1070,7 @@ int Modem_call(char *num)
                                 /* code */
                                 memset(num_recv,0,sizeof(num_recv));
                                 int r = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
+                                sleep(2);
                                 if(r > 0)
                                 {
                                     printf("num_recv: %s\nlen: %d\n",num_recv,r);
@@ -1098,6 +1098,7 @@ int Modem_call(char *num)
                                         }
                                         
                                         pthread_join(rec,NULL);
+                                        pthread_cancel(sen);
                                         pthread_join(sen,NULL);
                                         break;
                                     }
@@ -1130,7 +1131,7 @@ int Modem_call(char *num)
             else
             {
                 /* code */
-                printf("Can't recv data!\n(call)");
+                printf("Can't recv data!(call)\n");
             }
             cc++;
             sleep(1);
@@ -1173,7 +1174,7 @@ void *pthread_stou_m(void *arg)
     char buf[speed];
     int aaa = sizeof(buf);
     //printf("speed: %d\n",speed);
-    printf("buf len: %d\n",aaa);
+    //printf("buf len: %d\n",aaa);
     while (1)
     {
         memset(buf,0,sizeof(buf));
@@ -1202,7 +1203,7 @@ void *pthread_stou_m(void *arg)
         }
     }
     printf("stu_exit = %d\n",stu_exit);
-    printf("socket_to_uart_modem exit...\n");  
+    printf("socket_to_uart_modem exit...\n"); 
     pthread_exit(0);
 }
 /************************************************************************************** 
@@ -1332,6 +1333,7 @@ void *pthread_utos(void *arg)
             perror("read from uart");      
             break;
         }
+        usleep(1000);
     }
 
     printf("uart_to_socket exit...\n");  
