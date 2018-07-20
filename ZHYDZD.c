@@ -96,7 +96,7 @@ int main(void)
     /*connect da tang and open contrl uart*/
     for(;;)
     {
-        uart_fd1 = open_dev(dev2);//open control uart
+        uart_fd1 = open_dev(dev1);//open control uart
         if(uart_fd1)
         {
             uart_set(uart_fd1,115200,0,8,1,'N');//control uart init/set baud rate
@@ -180,7 +180,7 @@ int main(void)
                         * 1.call target number
                         * 2.if connect succeed,then you can write or read msg
                         */
-                        uart_fd3 = open_dev(dev1);
+                        uart_fd3 = open_dev(dev3);
                         uart_set(uart_fd3,115200,0,8,1,'N');
 
                         /*answer*/
@@ -223,7 +223,7 @@ int main(void)
                         * 1.open uart
                         * 2.then you can read or write
                         */
-                        uart_fd2 = open_dev(dev3);
+                        uart_fd2 = open_dev(dev2);
                         uart_set(uart_fd2,115200,0,8,1,'N');
                         printf("RS232 open succeed!\n");
                         //创建socket到uart线程
@@ -450,7 +450,13 @@ int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity
     
     //修改输出模式，原始数据输出
     options.c_oflag &= ~OPOST;
-    
+    /*ASCII标准的XON和XOFF字符，如果在传输这两个字符的时候就传不过去，需要把软件流控制屏蔽*/
+    options.c_iflag &= ~ (IXON | IXOFF | IXANY);
+    /*发送字符0X0d的时候，往往接收端得到的字符是0X0a，
+    原因是因为在串口设置中c_iflag和c_oflag中存在从NL-CR和CR-NL的映射，
+    即串口能把回车和换行当成同一个字符，可以进行如下设置屏蔽之：*/
+    options.c_iflag &= ~ (INLCR | ICRNL | IGNCR);
+    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);//我加的
     //options.c_lflag &= ~(ISIG | ICANON);
     
@@ -563,7 +569,6 @@ int Server_start(void)
         printf("Creat socket succeed!\n");
     }
 
-    //setsockopt(sockSev_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if(bind(sockSev_fd,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0)
     {
         perror("bind error");  
@@ -639,12 +644,10 @@ void *pthread_sertocli(void *arg)
         memset(buf,0,sizeof(buf));
         recv_data = recv(fd,buf,sizeof(buf),0);
         printf("stc recv recv_data = %d\n", recv_data);
-        //printf("stc recv buf: %s\n",buf);
         if(recv_data > 0)
         {
             n = send(cli_fd,buf,recv_data,0);
             printf("stc send n = %d\n", n);
-            //printf("stc send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to cli");
@@ -774,12 +777,10 @@ void *pthread_clitocli(void *arg)
         memset(buf,0,sizeof(buf));
         recv_data = recv(cli_fd,buf,sizeof(buf),0);
         printf("ctc recv recv_data = %d\n", recv_data);
-        //printf("ctc recv buf: %s\n",buf);
         if(recv_data > 0)
         {
             n = send(fd,buf,recv_data,0);
             printf("ctc send n = %d\n", n);
-            //printf("ctc send buf: %s\n",buf);
             if(n<0)
             {
                 perror("write to cli");
@@ -1202,7 +1203,6 @@ void *pthread_stou_m(void *arg)
             break;
         }
     }
-    printf("stu_exit = %d\n",stu_exit);
     printf("socket_to_uart_modem exit...\n"); 
     pthread_exit(0);
 }
@@ -1289,8 +1289,8 @@ void *pthread_stou(void *arg)
             perror("read from socket");
             break;
         }
+        usleep(1000);
     }
-    printf("stu_exit = %d\n",stu_exit);
     printf("socket_to_uart exit...\n");  
     pthread_exit(0);
 }
