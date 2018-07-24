@@ -39,6 +39,10 @@ int cli_fd;//上位机
 int uart_fd1;//control uart signal
 int uart_fd2;//RS232
 int uart_fd3;//modem
+//TCP线路线程
+pthread_t thread1,thread2;
+pthread_t socktouart;//socket to uart
+pthread_t uarttosock;//socket to uart
 //网络中断线程终止标识
 static char *ctrl_channel;
 static char *ctrl_data;
@@ -80,8 +84,6 @@ int main(void)
     char msg_ctrluart_fa[] = "打开控制串口失败！\n";
     char msg_at[] = "请重新拨号或接听！\n";
     char msg_at_cut[] = "连接失败！\n";
-    pthread_t socktouart;//socket to uart
-    pthread_t uarttosock;//socket to uart
     pthread_t cli_msg;//client connect msg
     pthread_t ctrl_listen;
     char *dev1 = DEVICE1;
@@ -104,8 +106,6 @@ int main(void)
             	/* code */
             	perror("pthread_Ctrluart");
             }
-            //等待线程退出（基本不会退出）
-            //pthread_join(ctrl_listen,NULL);
         }
         else
         {
@@ -130,7 +130,6 @@ int main(void)
                 //send  msg to ctrl uart
                 if(slock)
                 {
-                    //pthread_create(&cli_msg,NULL,&(pthread_msg),(void *)cli_connect_succeed);
                     write(uart_fd1,msg_DT_su,sizeof(msg_DT_su));
                     slock = 0;
                 }
@@ -162,6 +161,7 @@ int main(void)
                         //start client
                             Client_start(ctrl_data);
                         }
+                        sleep(1);
                     }
                     else if (*(ctrl_channel) == '1')
                     {
@@ -233,20 +233,12 @@ int main(void)
                         {
                             perror("pthread_utos");
                         }
-
-                        sleep(1);
-
-                    }
-                    else if(*(ctrl_channel) == '3')
-                    {
+                        
+                        pthread_join(socktouart,NULL);
+                        pthread_join(uarttosock,NULL);
                         su1 = 1;
                         su2 = 1;
-                        pthread_cancel(socktouart);
-                        pthread_join(socktouart,NULL);
-                        pthread_cancel(uarttosock);
-                        pthread_join(uarttosock,NULL);
-                    	printf("关闭所有通信方式！\n");
-                        sleep(2);
+                        sleep(1);
                     }
                     else
                     {
@@ -548,7 +540,9 @@ int Server_start(void)
     struct sockaddr_in server;
     struct sockaddr_in client;
     int *connfd;
-    pthread_t thread1,thread2;
+    int p = 1;
+    int s = 1;
+    int opt = 1;
 
     bzero(&server,sizeof(server));   
     
@@ -567,6 +561,8 @@ int Server_start(void)
     {
         printf("Creat socket succeed!\n");
     }
+
+    setsockopt(sockSev_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));//端口复用,解决bind error:address already in use
 
     if(bind(sockSev_fd,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0)
     {
@@ -589,9 +585,11 @@ int Server_start(void)
     {
         printf("listen....\n");
     }
-
+    
     while (1)
     {
+        printf("等待建立连接!\n");
+        //建立连接前关闭服务器
         int c=sizeof(client);
         connfd = malloc(sizeof(int));//防止在两个线程中同时操作一个描述符
         *connfd=accept(sockSev_fd,(struct sockaddr *)&client,&c);
@@ -602,34 +600,28 @@ int Server_start(void)
             return -1;
         }
         printf("accept....\n");
-        int p = 0;
-        p = pthread_create(&thread1,NULL,&(pthread_sertocli),connfd);
-        if(p < 0)
+        if(p == 1)
+            p = pthread_create(&thread1,NULL,&(pthread_sertocli),connfd);
+        if(p != 0)
         {
             perror("pthread_sertocli");
             return -1;
         }
-        /*else
-        {
-            printf("pthread_sertocli create...\n");
-        }*/
-
-        int s = 0;
-        s = pthread_create(&thread2,NULL,&(pthread_clitoser),connfd);
-        if (s < 0) 
+        if(s == 1)
+            s = pthread_create(&thread2,NULL,&(pthread_clitoser),connfd);
+        if (s != 0) 
         {
             perror("pthread_clitoser");
             return -1;
         }
-        /*else
-        {
-            printf("pthread_clitoser create...\n");
-        }*/
+        
         pthread_join(thread1,NULL);
         pthread_join(thread2,NULL);
         break;
     }
+    printf("结束了!\n");
     close(sockSev_fd);
+    return 0;
 }
 void *pthread_sertocli(void *arg)
 {
@@ -716,8 +708,9 @@ void *pthread_clitoser(void *arg)
 int Client_start(char *ip)
 {
     int sockCli_fd;
-    pthread_t thread1,thread2;
     struct sockaddr_in client;
+    int p = 1;
+    int s = 1;
 
     bzero(&client,sizeof(client));
     client.sin_family = AF_INET;
@@ -746,23 +739,24 @@ int Client_start(char *ip)
 
     printf("Connect server succeed!\n");
 
-    int p = 0;
-    p = pthread_create(&thread1,NULL,&(pthread_clitocli),&sockCli_fd);
-    if(p < 0)
+    if(p == 1)
+        p = pthread_create(&thread1,NULL,&(pthread_clitocli),&sockCli_fd);
+    if(p != 0)
     {
         perror("pthread_clitocli");
         return -1;
     }
-    int s = 0;
-    s = pthread_create(&thread2,NULL,&(pthread_clitocli_fd),&sockCli_fd);
-    if(s < 0)
+    if(s == 1)
+        s = pthread_create(&thread2,NULL,&(pthread_clitocli_fd),&sockCli_fd);
+    if(s != 0)
     {
         perror("pthread_clitocli_fd");
         return -1;
     }
+
     pthread_join(thread1,NULL);
     pthread_join(thread2,NULL);
-    close(sockCli_fd);
+    return 0;
 }
 void *pthread_clitocli(void *arg)
 {
@@ -798,6 +792,7 @@ void *pthread_clitocli(void *arg)
         }
     }
     printf("client to client exit!\n");  
+    close(fd);
     pthread_exit(0); 
 }
 void *pthread_clitocli_fd(void *arg)
@@ -836,6 +831,7 @@ void *pthread_clitocli_fd(void *arg)
         }
     }
     printf("client to client_fd exit!\n");  
+    close(fd);
     pthread_exit(0);    
 }
 
@@ -1388,8 +1384,26 @@ void *pthread_Ctrluart(void *arg)
 			printf("Recv data: %s\n len: %d\n",recv_buf,len);
             strncpy(ctrlChannel,recv_buf,1);
             strncpy(ctrlData,recv_buf+2,strlen(recv_buf)-2);
-            //printf("ctrlChannel = %s  ctrlData = %s\n",ctrlChannel,ctrlData);
             printf("ctrl_channel = %s  ctrl_data = %s\n",ctrl_channel,ctrl_data);
+
+            //关闭线程
+            if (*(ctrl_channel) == '3') 
+            {
+                /*关闭串口线程*/
+                if(uart_fd2 > 0)
+                {
+                    pthread_cancel(socktouart);
+                    pthread_cancel(uarttosock);
+                    printf("关闭串口通信方式！\n");
+                }
+                else
+                {
+                    pthread_cancel(thread1);
+                    pthread_cancel(thread2);
+                    printf("关闭TCP通信方式！\n");
+                }
+                sleep(1);
+            }
 		}
 		else
 		{
@@ -1398,8 +1412,7 @@ void *pthread_Ctrluart(void *arg)
             memset(ctrlChannel,0,sizeof(ctrlChannel));
             memset(ctrlData,0,sizeof(ctrlData));
 		}
-        //printf("ctrl_channel = %s  ctrl_data = %s\n",ctrl_channel,ctrl_data);
-		sleep(2);
+		usleep(500);
 	}
 
 	printf("pthread_Ctrluart exit...\n"); 
