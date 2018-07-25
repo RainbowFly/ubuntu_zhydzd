@@ -32,7 +32,7 @@
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
 //定义包大小10KB和1kB(上位机定义)
-#define PACK_SIZE_TCP 1024*10
+#define PACK_SIZE_TCP 1024*100
 #define PACK_SIZE_UART 1024
 /*define*/
 int cli_fd;//上位机
@@ -43,6 +43,7 @@ int uart_fd3;//modem
 pthread_t thread1,thread2;
 pthread_t socktouart;//socket to uart
 pthread_t uarttosock;//socket to uart
+pthread_t rec, sen;//modem 
 //网络中断线程终止标识
 static char *ctrl_channel;
 static char *ctrl_data;
@@ -65,7 +66,6 @@ void *pthread_clitocli(void *arg);
 void *pthread_clitocli_fd(void *arg);
 void *pthread_stou(void *arg);//RS232
 void *pthread_utos(void *arg);//RS232
-void *pthread_msg(void *arg);// msg to ctl uart
 int Modem_answer(void);
 int Modem_call(char *num);
 void *pthread_utos_m(void *arg);
@@ -78,13 +78,10 @@ int main(void)
     int su2 = 1;
     int slock = 1;
     int flock = 0;
-    char msg_DT_su[] = "连接大唐路由成功！\n";
-    char msg_DT_fa[] = "连接大唐路由失败！\n";
-    char msg_ctrluart_su[] = "打开控制串口成功！\n";
-    char msg_ctrluart_fa[] = "打开控制串口失败！\n";
-    char msg_at[] = "请重新拨号或接听！\n";
-    char msg_at_cut[] = "连接失败！\n";
-    pthread_t cli_msg;//client connect msg
+    char msg_DT_su[] = "\n连接大唐路由成功！\n";
+    char msg_DT_fa[] = "\n连接大唐路由失败！\n";
+    char msg_ctrluart_su[] = "\n打开控制串口成功！\n";
+    char msg_ctrluart_fa[] = "\n打开控制串口失败！\n";
     pthread_t ctrl_listen;
     char *dev1 = DEVICE1;
     char *dev2 = DEVICE2;
@@ -150,7 +147,6 @@ int main(void)
                         * 1.In this department you should connect server or client first
                         * 2.Analyzing conditions is ip
                         */
-
                         if(*(ctrl_data) == '\0')//server
                         {
                         //start server
@@ -170,7 +166,7 @@ int main(void)
                         * 1.call target number
                         * 2.if connect succeed,then you can write or read msg
                         */
-                        uart_fd3 = open_dev(dev3);
+                        uart_fd3 = open_dev(dev2);
                         uart_set(uart_fd3,115200,0,8,1,'N');
 
                         /*answer*/
@@ -178,30 +174,12 @@ int main(void)
                         {
                             /* code */
                             int ma = Modem_answer();
-                            if (ma == -1){
-                                /* code */
-                                write(uart_fd1,msg_at,sizeof(msg_at));
-                            }
-                            else{
-                                /* code */
-                                write(uart_fd1,msg_at_cut,sizeof(msg_at_cut));
-                            }
-
                         }
                         /*call*/
                         else
                         {
                             /* code */
                             int mc = Modem_call(ctrl_data);
-                            
-                            if (mc == -1) {
-                                /* code */
-                                write(uart_fd1,msg_at,sizeof(msg_at));
-                            }
-                            else {
-                                /* code */
-                                write(uart_fd1,msg_at_cut,sizeof(msg_at_cut));
-                            }
                         }
 
                     }
@@ -287,7 +265,6 @@ int socket_cli(char *ip)
         return -1;
     }  
 
-    //printf("Connect server succeed!");
     return c_fd;
 }
 /*
@@ -308,21 +285,13 @@ int open_dev(char *dev)
         printf("fcntl failed!\n");
         return -1;
     }     
-    //else
-    //{
-        //printf("fcntl=%d\n",fcntl(fd, F_SETFL,0));
-    //}
+
     /*测试是否为终端设备*/    
     if(0 == isatty(STDIN_FILENO))
     {
         printf("standard input is not a terminal device\n");
         return -1;
     }
-    /*else
-    {
-        printf("isatty success!\n");
-    }*/              
-    //printf("fd->open=%d\n",fd);
 
     return fd;
 } 
@@ -448,8 +417,6 @@ int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity
     即串口能把回车和换行当成同一个字符，可以进行如下设置屏蔽之：*/
     options.c_iflag &= ~ (INLCR | ICRNL | IGNCR);
     options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);//我加的
-    //options.c_lflag &= ~(ISIG | ICANON);
     
     //设置等待时间和最小接收字符
     options.c_cc[VTIME] = 1; /* 读取一个字符等待1*(1/10)s */  
@@ -514,8 +481,7 @@ int uart_recv(int fd,char *buff,int data_len)
     time.tv_usec = 0;    
        
     //使用select实现串口的多路通信    
-    fs_sel = select(fd+1,&fs_read,NULL,NULL,&time);    
-    //printf("fs_sel = %d\n",fs_sel);    
+    fs_sel = select(fd+1,&fs_read,NULL,NULL,&time); 
     if(fs_sel)    
     {    
         len = read(fd,buff,data_len);    
@@ -543,6 +509,8 @@ int Server_start(void)
     int p = 1;
     int s = 1;
     int opt = 1;
+    char msg_TCP_online[] = "\n专网已建立连接,可进行通信...\n";
+    char msg_TCP_onconnect[] = "\n等待建立连接...\n";
 
     bzero(&server,sizeof(server));   
     
@@ -585,7 +553,8 @@ int Server_start(void)
     {
         printf("listen....\n");
     }
-    
+
+    write(uart_fd1,msg_TCP_onconnect,strlen(msg_TCP_onconnect));//告知上位机等待建立连接
     while (1)
     {
         printf("等待建立连接!\n");
@@ -615,6 +584,7 @@ int Server_start(void)
             return -1;
         }
         
+        write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
         pthread_join(thread1,NULL);
         pthread_join(thread2,NULL);
         break;
@@ -711,6 +681,9 @@ int Client_start(char *ip)
     struct sockaddr_in client;
     int p = 1;
     int s = 1;
+    char msg_TCP_online[] = "\n专网已建立连接,可进行通信...\n";
+    char msg_TCP_onconnect[] = "\n正在建立连接...\n";
+    char msg_TCP_fail[] = "\n建立连接失败,请重试!\n";
 
     bzero(&client,sizeof(client));
     client.sin_family = AF_INET;
@@ -729,10 +702,11 @@ int Client_start(char *ip)
         close(sockCli_fd);
         return -1;
     }
-
+    write(uart_fd1,msg_TCP_onconnect,strlen(msg_TCP_onconnect));//告知上位机等待建立连接
     if(-1 == connect(sockCli_fd,(struct sockaddr *)&client,sizeof(client)))
     {
         perror("client connect");
+        write(uart_fd1,msg_TCP_fail,strlen(msg_TCP_fail));//告知上位机等待建立连接
         close(sockCli_fd);
         return -1;
     }
@@ -754,6 +728,7 @@ int Client_start(char *ip)
         return -1;
     }
 
+    write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
     pthread_join(thread1,NULL);
     pthread_join(thread2,NULL);
     return 0;
@@ -852,7 +827,8 @@ int Modem_answer(void)
     char *baud = speed_buf;
     int an = 0;
     int cc = 0;
-    pthread_t rec, sen;
+    char msg_PSIN_online[] = "\nPSTN已建立连接,可进行通信...\n";
+    char msg_PSIN_oncall[] = "\n等待被呼叫...\n";
 
     /*接收at反回值*/
     int aa = 0;
@@ -871,18 +847,25 @@ int Modem_answer(void)
                 printf("Recv data: %s\ndata len: %d\n",at_recv,len);
                 //判断接收内容
                 int cmp = strncasecmp(at_recv+5,"OK",2);
+                //int cmp = strstr(at_recv,"OK");
                 //判断有无ring——没有则等待被呼叫
                 memset(at_recv,0,sizeof(at_recv));
+                int call_msg_lock = 1;
                 while(cmp == 0)
                 {
                     /* code */
+                    if(call_msg_lock)
+                    {
+                        write(uart_fd1,msg_PSIN_oncall,strlen(msg_PSIN_oncall));//告知上位机等待被呼叫
+                        call_msg_lock = 0;
+                    }
                     int ring = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
                     if (ring > 0) 
                     {
                         /* code */
                         printf("Recv data: %s\n",at_recv);
-                        cc = strncasecmp(at_recv+2,"RING",4);
-                        if(cc==0)
+                        //cc = strncasecmp(at_recv+2,"RING",4);
+                        if(strstr(at_recv,"RING") != 0)
                         {
                             break;
                         }
@@ -897,7 +880,7 @@ int Modem_answer(void)
                 }
                 sleep(1);
                 int ii = 0;
-                while(cc == 0 && ii < 3 && an == 0 && cmp == 0)
+                while(ii < 3 && an == 0 && cmp == 0)
                 {
                     int n = uart_send(uart_fd3,answer_at,sizeof(answer_at));
                     
@@ -916,9 +899,9 @@ int Modem_answer(void)
                             if(r > 0)
                             {
                                 printf("num_recv: %s\nlen: %d\n",num_recv,r);
-                                int c = strncasecmp(num_recv+2,"CONNECT",7);
+                                //int c = strncasecmp(num_recv+2,"CONNECT",7);
                                 //判断是否连接成功
-                                if (c == 0) 
+                                if (strstr(num_recv,"CONNECT") != 0) 
                                 {
                                     /* code */
                                     memset(speed_buf,0,sizeof(speed_buf));
@@ -928,17 +911,17 @@ int Modem_answer(void)
                                     write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
                                     /*创建收发线程*/
                                     int re = pthread_create(&rec,NULL,&(pthread_stou_m),baud);
-                                    if(re < 0)
+                                    if(re != 0)
                                     {
                                         perror("pthread_create rec(answer)");
                                     }
 
                                     int se = pthread_create(&sen,NULL,&(pthread_utos_m),baud);
-                                    if (se < 0) 
+                                    if (se != 0) 
                                     {
                                         perror("pthread_create sen(answer)");
                                     }
-                                    
+                                    write(uart_fd1,msg_PSIN_online,strlen(msg_PSIN_online));//告知上位机建立连接，通信中
                                     pthread_join(rec,NULL);
                                     pthread_cancel(sen);
                                     pthread_join(sen,NULL);
@@ -949,7 +932,6 @@ int Modem_answer(void)
                                     /* code */
                                     printf("Connect failed!(answer)\n");
                                 }
-                                
                             }
                             else
                             {
@@ -958,11 +940,9 @@ int Modem_answer(void)
                             nn++;
                             sleep(1);
                         }
-                        
                     }
                     else 
                     {
-                        /* code */
                         printf("Answer failed!\n");
                     }
                     ii++;
@@ -971,7 +951,6 @@ int Modem_answer(void)
             }
             else
             {
-                /* code */
                 printf("Can't recv data!(answer)\n");
             }
             aa++;
@@ -990,15 +969,15 @@ int Modem_answer(void)
         }   
     }
     
-    if (an != 0) {
-        /* code */
+    if (an != 0) 
+    {
         printf("应答连接成功!\n");
     }
-    else {
-        /* code */
+    else 
+    {
         printf("应答连接失败!\n");
     }
-    close(uart_fd3);
+    //close(uart_fd3);
     return 0;
 }
 /************************************************************************************** 
@@ -1019,7 +998,8 @@ int Modem_call(char *num)
     char speed_buf[32];
     char *baud = speed_buf;
     int ca = 0;
-    pthread_t rec, sen;
+    char msg_PSIN_online[] = "\nPSTN已建立连接,可进行通信...\n";
+    char msg_PSIN_call[] = "\n呼叫中...\n";
 
     /*接收at反回值*/
     strcat(call_at,call_at2);
@@ -1041,8 +1021,7 @@ int Modem_call(char *num)
             {
                 printf("Recv data: %s\ndata len: %d\n",at_recv,len);
                 //判断接收内容
-                int cmp = strncasecmp(at_recv+5,"OK",2);
-                if (cmp != 0) 
+                if (strstr(at_recv,"OK") == 0) 
                 {
                     /* code */
                     printf("Modem is not OK!(call)\n");
@@ -1058,7 +1037,7 @@ int Modem_call(char *num)
                         {
                             /* code */
                             printf("Call %s succeed!\n\n",num);
-                            
+                            write(uart_fd1,msg_PSIN_call,strlen(msg_PSIN_call));//告知上位机呼叫中
                             //判断返回的内容
                             int nn = 0;
                             while(n && nn < 1)
@@ -1070,9 +1049,8 @@ int Modem_call(char *num)
                                 if(r > 0)
                                 {
                                     printf("num_recv: %s\nlen: %d\n",num_recv,r);
-                                    int c = strncasecmp(num_recv+2,"CONNECT",7);
                                     //判断是否连接成功
-                                    if (c == 0) 
+                                    if (strstr(num_recv,"CONNECT") != 0) 
                                     {
                                         /* code */
                                         memset(speed_buf,0,sizeof(speed_buf));
@@ -1082,17 +1060,17 @@ int Modem_call(char *num)
                                         write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
                                         /*创建收发线程*/
                                         int re = pthread_create(&rec,NULL,&(pthread_stou_m),baud);
-                                        if(re < 0)
+                                        if(re != 0)
                                         {
                                             perror("pthread_create rec(call)");
                                         }
 
                                         int se = pthread_create(&sen,NULL,&(pthread_utos_m),baud);
-                                        if (se < 0) 
+                                        if (se != 0) 
                                         {
                                             perror("pthread_create sen(call)");
                                         }
-                                        
+                                        write(uart_fd1,msg_PSIN_online,strlen(msg_PSIN_online));//告知上位机建立连接，通信中
                                         pthread_join(rec,NULL);
                                         pthread_cancel(sen);
                                         pthread_join(sen,NULL);
@@ -1100,23 +1078,19 @@ int Modem_call(char *num)
                                     }
                                     else 
                                     {
-                                        /* code */
                                         printf("Connect failed!(call)\n");
                                     }
-                                    
                                 }
                                 else
                                 {
                                     printf("No data(Call)!\n");
                                 }
-                                //nn++;
+                                //n++;
                                 sleep(1);
-                            }
-                            
+                            }    
                         }
                         else 
                         {
-                            /* code */
                             printf("Call %s failed!\n",num);
                         }
                         ii++;
@@ -1126,7 +1100,6 @@ int Modem_call(char *num)
             }
             else
             {
-                /* code */
                 printf("Can't recv data!(call)\n");
             }
             cc++;
@@ -1145,15 +1118,14 @@ int Modem_call(char *num)
         }
     }
     
-    if (ca != 0) {
-        /* code */
+    if (ca != 0) 
+    {
         printf("呼叫连接成功!\n");
     }
     else {
-        /* code */
         printf("呼叫连接失败!\n");
     }
-    close(uart_fd3);
+    //close(uart_fd3);
     return 0;    
 }
 /************************************************************************************** 
@@ -1169,8 +1141,7 @@ void *pthread_stou_m(void *arg)
     int speed = atoi(spd);
     char buf[speed];
     int aaa = sizeof(buf);
-    //printf("speed: %d\n",speed);
-    //printf("buf len: %d\n",aaa);
+
     while (1)
     {
         memset(buf,0,sizeof(buf));
@@ -1185,7 +1156,6 @@ void *pthread_stou_m(void *arg)
                 perror("write to uart(m)");
                 break;
             }
-            //break;
         }
         else if(recv_data == 0)
         {
@@ -1197,6 +1167,7 @@ void *pthread_stou_m(void *arg)
             perror("read from socket!(m)");
             break;
         }
+        usleep(500);
     }
     printf("socket_to_uart_modem exit...\n"); 
     pthread_exit(0);
@@ -1228,7 +1199,6 @@ void *pthread_utos_m(void *arg)
                 perror("write to socket(m)");
                 break;
             }
-            //break;
         }
         else if(recv_data == 0)
         {
@@ -1240,6 +1210,7 @@ void *pthread_utos_m(void *arg)
             perror("read from uart!(m)");      
             break;
         }
+        usleep(500);
     }
 
     printf("uart_to_socket_modem exit...\n");  
@@ -1330,33 +1301,12 @@ void *pthread_utos(void *arg)
             perror("read from uart");      
             break;
         }
-        
+
         sleep(1);
     }
 
     printf("uart_to_socket exit...\n");  
     close(fd); 
-    pthread_exit(0);
-}
-/************************************************************************************** 
- *  Description:收集信息发送给控制串口
- *   Input Args: 
- *  Output Args: 
- * Return Value: 
- *************************************************************************************/
-void *pthread_msg(void *arg)
-{
-    //printf("start pthread_msg\n");
-    char *str;
-    str = arg;
-    int n = 0;
-
-    n = write(uart_fd1,str,32);
-    if(n<0)
-    {
-        perror("Send state msg Error");
-    }
-    printf("Send state msg!\n");
     pthread_exit(0);
 }
 /************************************************************************************** 
@@ -1371,6 +1321,11 @@ void *pthread_Ctrluart(void *arg)
 	char recv_buf[32] = {0};
 	char ctrlChannel[8] = {0};
 	char ctrlData[16] = {0};
+    char command_reverse[8] = "+++";
+    char command_ath[8] = "ATH0\r";
+    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
+    char msg_close_rs232[] = "\nRS232通信已中断!\n";
+    char msg_close_tcp[] = "\n专网通信已中断!\n";
 
 	ctrl_channel = ctrlChannel;
 	ctrl_data = ctrlData;
@@ -1394,12 +1349,37 @@ void *pthread_Ctrluart(void *arg)
                 {
                     pthread_cancel(socktouart);
                     pthread_cancel(uarttosock);
+                    write(uart_fd1,msg_close_rs232,strlen(msg_close_rs232));//通知上位机
                     printf("关闭串口通信方式！\n");
+                }
+                else if(uart_fd3 > 0)
+                {
+                    //挂断电话流程(hang up)
+                    sleep(1);
+                    pthread_cancel(sen);
+                    pthread_cancel(rec);
+                    sleep(3);
+                    int ath1 = uart_send(uart_fd3,command_reverse,strlen(command_reverse));
+                    sleep(3);
+                    if(ath1 > 0)
+                    {
+                        printf("hang up(+++)!\n");
+                        int ath2 = uart_send(uart_fd3,command_ath,strlen(command_ath));
+                        if(ath2 > 0)
+                        {
+                            printf("hang up(ATH0)!\n");
+                        }
+                    }
+                    printf("hang up modem!\n");
+                    write(uart_fd1,msg_close_phone,strlen(msg_close_phone));//通知上位机
+                    close(uart_fd3);
+                    printf("关闭电话通信方式！\n");
                 }
                 else
                 {
                     pthread_cancel(thread1);
                     pthread_cancel(thread2);
+                    write(uart_fd1,msg_close_tcp,strlen(msg_close_tcp));//通知上位机
                     printf("关闭TCP通信方式！\n");
                 }
                 sleep(1);
@@ -1407,7 +1387,6 @@ void *pthread_Ctrluart(void *arg)
 		}
 		else
 		{
-			printf("No data!\n");
             memset(recv_buf,0,sizeof(recv_buf));
             memset(ctrlChannel,0,sizeof(ctrlChannel));
             memset(ctrlData,0,sizeof(ctrlData));
