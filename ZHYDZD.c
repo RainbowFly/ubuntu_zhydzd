@@ -78,10 +78,10 @@ int main(void)
     int su2 = 1;
     int slock = 1;
     int flock = 0;
-    char msg_DT_su[] = "\n连接大唐路由成功！\n";
-    char msg_DT_fa[] = "\n连接大唐路由失败！\n";
-    char msg_ctrluart_su[] = "\n打开控制串口成功！\n";
-    char msg_ctrluart_fa[] = "\n打开控制串口失败！\n";
+    char msg_DT_su[] = "\n*** 连接大唐路由成功！\n";
+    char msg_DT_fa[] = "\n*** 连接大唐路由失败！\n";
+    char msg_ctrluart_su[] = "\n*** 打开控制串口成功！\n";
+    char msg_ctrluart_fa[] = "\n*** 打开控制串口失败！\n";
     pthread_t ctrl_listen;
     char *dev1 = DEVICE1;
     char *dev2 = DEVICE2;
@@ -132,7 +132,7 @@ int main(void)
                 }
                 while(cli_fd > 0 && uart_fd1 > 0)//入口条件
                 {
-                    system("clear");
+                    //system("clear");
                     printf(">****************************************************<\n\n");
                     printf("                  ");
                     printf("\033[43;35m欢迎登录综合路由系统\033[0m\n\n");
@@ -168,20 +168,21 @@ int main(void)
                         */
                         uart_fd3 = open_dev(dev2);
                         uart_set(uart_fd3,115200,0,8,1,'N');
-
                         /*answer*/
                         if (*(ctrl_data) == '\0') 
                         {
                             /* code */
                             int ma = Modem_answer();
+                            printf("ma = %d\n",ma);
                         }
                         /*call*/
                         else
                         {
                             /* code */
                             int mc = Modem_call(ctrl_data);
+                            printf("mc = %d\n",mc);
                         }
-
+                        //close(uart_fd3);
                     }
                     else if (*(ctrl_channel) == '2')
                     {
@@ -220,7 +221,7 @@ int main(void)
                     }
                     else
                     {
-                    	printf("Wrong input!\n");
+                    	printf("No input!\n");
                         sleep(1);
                     }
                 }
@@ -825,14 +826,25 @@ int Modem_answer(void)
     char num_recv[64]; 
     char speed_buf[32];
     char *baud = speed_buf;
-    int an = 0;
-    int cc = 0;
-    char msg_PSIN_online[] = "\nPSTN已建立连接,可进行通信...\n";
-    char msg_PSIN_oncall[] = "\n等待被呼叫...\n";
-
+    int cmp_ring = 0;
+    int waitTimer = 0;//等待被呼叫15S
+    int callModemTime = 0;
+    int sendATA = 0;
+    int waitConnect = 0;
+    int sendAT = 0;
+    int getSpeed = 0;
+    char msg_PSIN_online[] = "\n*** PSTN已建立连接,可进行通信...\n";
+    char msg_PSIN_oncall[] = "\n*** 等待被呼叫...\n";
+    char msg_PSIN_callModem[] = "\n*** 调制解调器异常！\n";
+    char msg_PSIN_nocall[] = "\n*** 无呼叫！请重试！\n";
+    char msg_PSIN_uartAbnormal[] = "\n*** 串口异常！请重试！\n";
+    char msg_PSIN_connectRecvBusy[] = "\n*** BUSY! 请重试！\n";
+    char msg_PSIN_connectRecvNoDIA[] = "\n*** NO DIAL TONE! 请重试！\n";
+    char msg_PSIN_connectRecvNoCARR[] = "\n*** NO CARRIER! 请重试！\n";
+    char msg_PSIN_waitOverTime[] = "\n*** 等待超时! 请重试！\n";
+    char msg_PSIN_unableToRespond[] = "\n*** 无法应答! 请重试！\n";
     /*接收at反回值*/
-    int aa = 0;
-    while(uart_fd3 && an == 0 && aa < 3)
+    while(uart_fd3 > 0)
     {
          /*send at command*/
         at = uart_send(uart_fd3,command_at,strlen(command_at));
@@ -840,18 +852,20 @@ int Modem_answer(void)
         if(at > 0)
         {
             printf("Send at succeed!\n");
+            sleep(1);
+            sendAT = 0;
             memset(at_recv,0,sizeof(at_recv));
             int len = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
             if(len > 0)
             {
                 printf("Recv data: %s\ndata len: %d\n",at_recv,len);
+                callModemTime = 0;
                 //判断接收内容
-                int cmp = strncasecmp(at_recv+5,"OK",2);
-                //int cmp = strstr(at_recv,"OK");
+                int cmp_ok = strncasecmp(at_recv+5,"OK",2);
                 //判断有无ring——没有则等待被呼叫
                 memset(at_recv,0,sizeof(at_recv));
                 int call_msg_lock = 1;
-                while(cmp == 0)
+                while(cmp_ok == 0)
                 {
                     /* code */
                     if(call_msg_lock)
@@ -864,51 +878,56 @@ int Modem_answer(void)
                     {
                         /* code */
                         printf("Recv data: %s\n",at_recv);
-                        //cc = strncasecmp(at_recv+2,"RING",4);
-                        if(strstr(at_recv,"RING") != 0)
+                        cmp_ring = strncasecmp(at_recv+2,"RING",4);
+                        if(cmp_ring == 0)
                         {
+                            waitTimer = 0;
                             break;
                         }
                     }
                     else 
                     {
                         /* code */
-                        printf("No ring!\n");
-                        sleep(1);
-                        continue;
+                        if(waitTimer < 15)
+                        {
+                            printf("No ring!\n");
+                            sleep(1);
+                            waitTimer++;
+                            continue;
+                        }
+                        write(uart_fd1,msg_PSIN_nocall,strlen(msg_PSIN_nocall));//告知上位机无呼叫退出
+                        return 8;
                     }
                 }
-                sleep(1);
-                int ii = 0;
-                while(ii < 3 && an == 0 && cmp == 0)
+
+                while(cmp_ring == 0)
                 {
-                    int n = uart_send(uart_fd3,answer_at,sizeof(answer_at));
-                    
-                    if (n > 0) 
+                    int send_ata = uart_send(uart_fd3,answer_at,sizeof(answer_at));
+                    if (send_ata > 0) 
                     {
                         /* code */
-                        printf("Answer succeed!\n\n");
+                        printf("Send ATA succeed!\n\n");
+                        sendATA = 0;
                         sleep(2);
                         //判断返回的内容
-                        int nn = 0;
-                        while(n && nn < 8)
+                        memset(num_recv,0,sizeof(num_recv));
+                        while(1)
                         {
                             /* code */
-                            memset(num_recv,0,sizeof(num_recv));
-                            int r = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
-                            if(r > 0)
+                            int recv_connect = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
+                            if(recv_connect > 0)
                             {
-                                printf("num_recv: %s\nlen: %d\n",num_recv,r);
-                                //int c = strncasecmp(num_recv+2,"CONNECT",7);
+                                printf("num_recv: %s\nlen: %d\n",num_recv,recv_connect);
+                                sleep(2);
+                                waitConnect = 0;
                                 //判断是否连接成功
-                                if (strstr(num_recv,"CONNECT") != 0) 
+                                if ((strstr(num_recv,"CONNECT") != 0) && strstr(num_recv,"PROTOCOL") != 0) 
                                 {
-                                    /* code */
+                                    /* 发给上位机速率 */
                                     memset(speed_buf,0,sizeof(speed_buf));
                                     strncpy(speed_buf,num_recv+10,6);
-                                    an = strlen(speed_buf);
                                     printf("Best bause: %s\n",speed_buf);
-                                    write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
+                                    write(uart_fd1,speed_buf,strlen(speed_buf));
                                     /*创建收发线程*/
                                     int re = pthread_create(&rec,NULL,&(pthread_stou_m),baud);
                                     if(re != 0)
@@ -925,60 +944,78 @@ int Modem_answer(void)
                                     pthread_join(rec,NULL);
                                     pthread_cancel(sen);
                                     pthread_join(sen,NULL);
-                                    break;
+                                    return 0;
                                 }
-                                else 
+                                else if(strstr(num_recv,"BUSY") != 0)
                                 {
-                                    /* code */
-                                    printf("Connect failed!(answer)\n");
+                                    write(uart_fd1,msg_PSIN_connectRecvBusy,strlen(msg_PSIN_connectRecvBusy));
+                                    return 1;
+                                }
+                                else if(strstr(num_recv,"NO DIAL") != 0)
+                                {
+                                    write(uart_fd1,msg_PSIN_connectRecvNoDIA,strlen(msg_PSIN_connectRecvNoDIA));
+                                    return 2;
+                                }
+                                else if(strstr(num_recv,"NO CARR") != 0)
+                                {
+                                    write(uart_fd1,msg_PSIN_connectRecvNoCARR,strlen(msg_PSIN_connectRecvNoCARR));
+                                    return 3;
                                 }
                             }
                             else
                             {
                                 printf("No data!(answer)\n");
+                                if(waitConnect < 35)
+                                {
+                                    waitConnect++;
+                                    sleep(1);
+                                    continue;
+                                }
+                                write(uart_fd1,msg_PSIN_waitOverTime,strlen(msg_PSIN_waitOverTime));
+                                return 6;
                             }
-                            nn++;
-                            sleep(1);
                         }
                     }
                     else 
                     {
                         printf("Answer failed!\n");
+                        if(sendATA < 3)
+                        {
+                            sendATA++;
+                            sleep(1);
+                            continue;
+                        }
+                        write(uart_fd1,msg_PSIN_unableToRespond,strlen(msg_PSIN_unableToRespond));
+                        return 7;
                     }
-                    ii++;
-                    sleep(1);
                 }
             }
             else
             {
-                printf("Can't recv data!(answer)\n");
+                printf("Can't recv OK!(answer)\n");
+                if(callModemTime < 5)
+                {
+                    callModemTime++;
+                    sleep(1);
+                    continue;
+                }
+                write(uart_fd1,msg_PSIN_callModem,strlen(msg_PSIN_callModem));//告知上位机错误
+                return 9;//3次呼叫modem没有反应跳出
             }
-            aa++;
-            sleep(1);
         }
         else
         {
             printf("Send at failed!\n");
-            sleep(1);
-            if(aa < 3)
+            if(sendAT < 5)
             {
-                aa++;
+                sendAT++;
+                sleep(1);
                 continue;
             }
-            return -1;
-        }   
+            write(uart_fd1,msg_PSIN_uartAbnormal,strlen(msg_PSIN_uartAbnormal));//告知上位机串口可能异常
+            return 10;
+        }
     }
-    
-    if (an != 0) 
-    {
-        printf("应答连接成功!\n");
-    }
-    else 
-    {
-        printf("应答连接失败!\n");
-    }
-    //close(uart_fd3);
-    return 0;
 }
 /************************************************************************************** 
  *  Description:modem线路呼叫
@@ -995,67 +1032,74 @@ int Modem_call(char *num)
     char *call_at2 = num;
     char call_at3[] = "\r";
     char num_recv[64]; 
+    char connect_buf[64];
     char speed_buf[32];
     char *baud = speed_buf;
     int ca = 0;
-    char msg_PSIN_online[] = "\nPSTN已建立连接,可进行通信...\n";
-    char msg_PSIN_call[] = "\n呼叫中...\n";
+    int sendAT = 0;
+    int callModemTime = 0;
+    int modemNotOK = 0;
+    int waitConnect = 0;
+    char msg_PSIN_uartAbnormal[] = "\n*** 串口异常！请重试！\n";
+    char msg_PSIN_online[] = "\n*** PSTN已建立连接,可进行通信...\n";
+    char msg_PSIN_call[] = "\n*** 呼叫中...\n";
+    char msg_PSIN_callModem[] = "\n*** 调制解调器异常！\n";
+    char msg_PSIN_callfailed1[] = "\n*** 拨号：\n";
+    char msg_PSIN_callfailed2[] = "\n 失败！请重试！\n";
+    char msg_PSIN_waitOverTime[] = "\n*** 拨号超时! 请重试！\n";
+    char msg_PSIN_connectRecvBusy[] = "\n*** BUSY! 请重试！\n";
+    char msg_PSIN_connectRecvNoDIA[] = "\n*** NO DIAL TONE! 请重试！\n";
+    char msg_PSIN_connectRecvNoCARR[] = "\n*** NO CARRIER! 请重试！\n";
 
     /*接收at反回值*/
     strcat(call_at,call_at2);
     strcat(call_at,call_at3);
     printf("call_at: %s\n",call_at);
 
-    int cc = 0;
-    while(uart_fd3 && ca == 0 && cc < 1)
+    while(uart_fd3 > 0)
     {
         /*send at command*/
         at = uart_send(uart_fd3,command_at,strlen(command_at));
         if(at > 0)
         {
             printf("Send at succeed!\n");
-            sleep(2);
+            sendAT = 0;//复位
+            sleep(1);
             memset(at_recv,0,sizeof(at_recv));
             int len = uart_recv(uart_fd3,at_recv,sizeof(at_recv));
             if(len > 0)
             {
                 printf("Recv data: %s\ndata len: %d\n",at_recv,len);
+                callModemTime = 0;//复位
                 //判断接收内容
-                if (strstr(at_recv,"OK") == 0) 
+                if (strstr(at_recv,"OK") != 0)
                 {
-                    /* code */
-                    printf("Modem is not OK!(call)\n");
-                }
-                else 
-                {
-                    /* code */
-                    int ii = 0;
-                    while(ii < 1 && ca == 0)
+                    modemNotOK = 0;//复位
+                    while(1)
                     {
                         int n = uart_send(uart_fd3,call_at,strlen(call_at));
                         if (n > 0) 
                         {
                             /* code */
-                            printf("Call %s succeed!\n\n",num);
+                            printf("Call %s succeed!\n\n",call_at2);
                             write(uart_fd1,msg_PSIN_call,strlen(msg_PSIN_call));//告知上位机呼叫中
+                            sleep(2);
                             //判断返回的内容
-                            int nn = 0;
-                            while(n && nn < 1)
+                            while(1)
                             {
                                 /* code */
                                 memset(num_recv,0,sizeof(num_recv));
                                 int r = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
-                                sleep(2);
                                 if(r > 0)
                                 {
                                     printf("num_recv: %s\nlen: %d\n",num_recv,r);
+                                    waitConnect = 0;//复位
                                     //判断是否连接成功
                                     if (strstr(num_recv,"CONNECT") != 0) 
                                     {
                                         /* code */
                                         memset(speed_buf,0,sizeof(speed_buf));
                                         strncpy(speed_buf,num_recv+10,6);
-                                        ca = strlen(speed_buf);
                                         printf("Best bause: %s\n",speed_buf);
                                         write(uart_fd1,speed_buf,strlen(speed_buf));//发送包大大小到控制串口
                                         /*创建收发线程*/
@@ -1074,59 +1118,87 @@ int Modem_call(char *num)
                                         pthread_join(rec,NULL);
                                         pthread_cancel(sen);
                                         pthread_join(sen,NULL);
-                                        break;
+                                        return 6;
                                     }
-                                    else 
+                                    else if(strstr(num_recv,"BUSY") != 0)
                                     {
-                                        printf("Connect failed!(call)\n");
+                                        write(uart_fd1,msg_PSIN_connectRecvBusy,strlen(msg_PSIN_connectRecvBusy));
+                                        return 7;
+                                    }
+                                    else if(strstr(num_recv,"NO DIAL") != 0)
+                                    {
+                                        write(uart_fd1,msg_PSIN_connectRecvNoDIA,strlen(msg_PSIN_connectRecvNoDIA));
+                                        return 8;
+                                    }
+                                    else if(strstr(num_recv,"NO CARR") != 0)
+                                    {
+                                        write(uart_fd1,msg_PSIN_connectRecvNoCARR,strlen(msg_PSIN_connectRecvNoCARR));
+                                        return 9;
                                     }
                                 }
                                 else
                                 {
                                     printf("No data(Call)!\n");
+                                    if(waitConnect < 35)
+                                    {
+                                        waitConnect++;
+                                        sleep(1);
+                                        continue;
+                                    }
+                                    write(uart_fd1,msg_PSIN_waitOverTime,strlen(msg_PSIN_waitOverTime));
+                                    return 5;
                                 }
-                                //n++;
-                                sleep(1);
                             }    
                         }
                         else 
                         {
-                            printf("Call %s failed!\n",num);
+                            printf("Call %s failed!\n",num);//拨号失败
+                            write(uart_fd1,msg_PSIN_callfailed1,strlen(msg_PSIN_callfailed1));
+                            write(uart_fd1,call_at2,strlen(call_at2));
+                            write(uart_fd1,msg_PSIN_callfailed1,strlen(msg_PSIN_callfailed1));
+                            return 4;
                         }
-                        ii++;
-                        sleep(1);
                     }
+                }
+                else                
+                {
+                    printf("Modem is not OK!(call)\n");
+                    if(modemNotOK < 3)
+                    {
+                        modemNotOK++;
+                        sleep(1);
+                        continue;
+                    }
+                    write(uart_fd1,msg_PSIN_callModem,strlen(msg_PSIN_callModem));//告知上位机错误
+                    return 3;//3次呼叫modem没有反应跳出
                 }
             }
             else
             {
-                printf("Can't recv data!(call)\n");
+                printf("Can't recv OK!(call)\n");
+                if(callModemTime < 5)
+                {
+                    callModemTime++;
+                    sleep(1);
+                    continue;
+                }
+                write(uart_fd1,msg_PSIN_callModem,strlen(msg_PSIN_callModem));//告知上位机错误
+                return 2;//3次呼叫modem没有反应跳出
             }
-            cc++;
-            sleep(1);
         }
         else
         {
             printf("Send at failed!\n");
-            sleep(1);
-            if(cc < 3)
+            if(sendAT < 5)
             {
-                cc++;
+                sendAT++;
+                sleep(1);
                 continue;
             }
-            return -1;
+            write(uart_fd1,msg_PSIN_uartAbnormal,strlen(msg_PSIN_uartAbnormal));//告知上位机串口可能异常
+            return 1;
         }
-    }
-    
-    if (ca != 0) 
-    {
-        printf("呼叫连接成功!\n");
-    }
-    else {
-        printf("呼叫连接失败!\n");
-    }
-    //close(uart_fd3);
-    return 0;    
+    }  
 }
 /************************************************************************************** 
  *  Description:接收socket数据并通过串口转发 ----- modem线路
@@ -1190,6 +1262,7 @@ void *pthread_utos_m(void *arg)
         memset(buf,0,sizeof(buf));
         int recv_data = read(uart_fd3,buf,sizeof(buf));
         printf("uts(m) read recv_data = %d\n",recv_data);
+        printf("buf: %s\n",buf);
         if(recv_data > 0)
         {
             int n = send(cli_fd,buf,recv_data,0);
@@ -1323,9 +1396,9 @@ void *pthread_Ctrluart(void *arg)
 	char ctrlData[16] = {0};
     char command_reverse[8] = "+++";
     char command_ath[8] = "ATH0\r";
-    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
-    char msg_close_rs232[] = "\nRS232通信已中断!\n";
-    char msg_close_tcp[] = "\n专网通信已中断!\n";
+    char msg_close_phone[] = "\n*** PSTN网络通信已中断!\n";
+    char msg_close_rs232[] = "\n*** RS232通信已中断!\n";
+    char msg_close_tcp[] = "\n*** 专网通信已中断!\n";
 
 	ctrl_channel = ctrlChannel;
 	ctrl_data = ctrlData;
