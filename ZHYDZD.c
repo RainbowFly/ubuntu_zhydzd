@@ -39,6 +39,7 @@ int cli_fd;//上位机
 int uart_fd1;//control uart signal
 int uart_fd2;//RS232
 int uart_fd3;//modem
+int sockSev_fd;//server
 static int TCP_flag_server = 0;
 static int TCP_flag_client = 0;
 static int PSTN_flag = 0;
@@ -49,6 +50,7 @@ pthread_t thread1,thread2;
 pthread_t socktouart;//socket to uart
 pthread_t uarttosock;//socket to uart
 pthread_t rec, sen;//modem 
+pthread_t server_pthread;//server
 //网络中断线程终止标识
 static char *ctrl_channel;
 static char *ctrl_data;
@@ -63,7 +65,7 @@ int open_dev(char *dev);
 int uart_set(int fd,int speed,int flow_ctrl,int databits,int stopbits,int parity);
 int uart_send(int fd,char *send_buf,int data_len);
 int uart_recv(int fd,char *buff,int data_len);
-int Server_start(void);
+void *Server_start(void *arg);
 void *pthread_sertocli(void *arg);
 void *pthread_clitoser(void *arg);
 int Client_start(char *ip);
@@ -81,6 +83,7 @@ int main(void)
 {
     int su1 = 1;//socket to uart 
     int su2 = 1;
+    int ser_return = 1;
     int slock = 1;
     int flock = 0;
     char msg_DT_su[] = "\n*** 连接大唐路由成功！\n";
@@ -156,7 +159,17 @@ int main(void)
                         if(*(ctrl_data) == '\0')//server
                         {
                         //start server
-                            Server_start();
+                            //Server_start();
+                            if(ser_return == 1)
+                            {
+                                ser_return = pthread_create(&server_pthread,NULL,&(Server_start),NULL);
+                            }
+                            if(ser_return != 0)
+                            {
+                                perror("pthread_server"); 
+                            }
+                            pthread_join(server_pthread,NULL);
+                            ser_return = 1;
                         }
                         else
                         {
@@ -506,9 +519,8 @@ int uart_recv(int fd,char *buff,int data_len)
  *  Output Args: 
  * Return Value: 
  *************************************************************************************/
-int Server_start(void)
+void *Server_start(void *arg)
 {
-    int sockSev_fd;//server
     struct sockaddr_in server;
     struct sockaddr_in client;
     int *connfd;
@@ -529,7 +541,7 @@ int Server_start(void)
     {
         perror("sockSev_fd error");
         close(sockSev_fd);
-        return -1;
+        pthread_exit(0);
     }
     else
     {
@@ -542,7 +554,7 @@ int Server_start(void)
     {
         perror("bind error");  
         close(sockSev_fd);
-        return -1;
+        pthread_exit(0);
     }
     else
     {
@@ -553,52 +565,49 @@ int Server_start(void)
     {  
         perror("Server Listen");
         close(sockSev_fd);   
-        return -1;  
+        pthread_exit(0); 
     }
     else
     {
         printf("listen....\n");
     }
-    //socket_flag = 1;
+    socket_flag = 1;
     write(uart_fd1,msg_TCP_onconnect,strlen(msg_TCP_onconnect));//告知上位机等待建立连接
-    while (1)
+
+    printf("等待建立连接!\n");
+    //建立连接前关闭服务器
+    int c=sizeof(client);
+    connfd = malloc(sizeof(int));//防止在两个线程中同时操作一个描述符
+    *connfd=accept(sockSev_fd,(struct sockaddr *)&client,&c);
+    if(*connfd==-1)
     {
-        printf("等待建立连接!\n");
-        //建立连接前关闭服务器
-        int c=sizeof(client);
-        connfd = malloc(sizeof(int));//防止在两个线程中同时操作一个描述符
-        *connfd=accept(sockSev_fd,(struct sockaddr *)&client,&c);
-        if(*connfd==-1)
-        {
-            perror("accept");
-            close(sockSev_fd);
-            return -1;
-        }
-        printf("accept....\n");
-        if(p == 1)
-            p = pthread_create(&thread1,NULL,&(pthread_sertocli),connfd);
-        if(p != 0)
-        {
-            perror("pthread_sertocli");
-            return -1;
-        }
-        if(s == 1)
-            s = pthread_create(&thread2,NULL,&(pthread_clitoser),connfd);
-        if (s != 0) 
-        {
-            perror("pthread_clitoser");
-            return -1;
-        }
-        
-        TCP_flag_server = 1;
-        write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
-        pthread_join(thread1,NULL);
-        pthread_join(thread2,NULL);
-        break;
+        perror("accept");
+        close(sockSev_fd);
+        pthread_exit(0);
     }
+    printf("accept....\n");
+    if(p == 1)
+        p = pthread_create(&thread1,NULL,&(pthread_sertocli),connfd);
+    if(p != 0)
+    {
+        perror("pthread_sertocli");
+        pthread_exit(0);
+    }
+    if(s == 1)
+        s = pthread_create(&thread2,NULL,&(pthread_clitoser),connfd);
+    if (s != 0) 
+    {
+        perror("pthread_clitoser");
+        pthread_exit(0);
+    }
+    TCP_flag_server = 1;
+    write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
+    pthread_join(thread1,NULL);
+    pthread_join(thread2,NULL);
+    
     printf("结束了!\n");
     close(sockSev_fd);
-    return 0;
+    pthread_exit(0);
 }
 void *pthread_sertocli(void *arg)
 {
@@ -1498,9 +1507,14 @@ void *pthread_Ctrluart(void *arg)
                 }
                 else
                 {
+                    if(socket_flag == 1 && TCP_flag_server == 0)
+                    {
+                        pthread_cancel(server_pthread);
+                        close(sockSev_fd);
+                        socket_flag = 0;
+                    }
                     write(uart_fd1,msg_close_all,strlen(msg_close_all));//通知上位机
                 }
-                
                 sleep(1);
             }
 		}
