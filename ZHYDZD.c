@@ -928,10 +928,10 @@ int Modem_answer(void)
                         sendATA = 0;
                         sleep(2);
                         //判断返回的内容
-                        memset(num_recv,0,sizeof(num_recv));
                         while(1)
                         {
                             /* code */
+                            memset(num_recv,0,sizeof(num_recv));
                             int recv_connect = uart_recv(uart_fd3,num_recv,sizeof(num_recv));
                             if(recv_connect > 0)
                             {
@@ -1294,43 +1294,45 @@ void *pthread_utos_m(void *arg)
     int speed = atoi(spd);
     char buf[speed];
     char buf_protocol[64];
+    int onceLock = 1;
 
-    int recv_protocol = read(uart_fd3,buf_protocol,sizeof(buf_protocol));//此处存在隐患
-    if(strstr(buf_protocol,"PROTOCOL") != 0)
+    while (1)
     {
-        memset(buf_protocol,0,sizeof(buf_protocol));
-        while (1)
+        if(onceLock == 1)//先判断有没有收到反馈信息，有就屏蔽掉
         {
-            memset(buf,0,sizeof(buf));
-            int recv_data = read(uart_fd3,buf,sizeof(buf));
-            printf("uts(m) read recv_data = %d\n",recv_data);
-            //printf("buf: %s\n",buf);
-            if(recv_data > 0)
+            int recv_protocol = read(uart_fd3,buf_protocol,sizeof(buf_protocol));
+            if(strstr(buf_protocol,"PROTOCOL") != 0)
             {
-                int n = send(cli_fd,buf,recv_data,0);
-                printf("uts(m) send n = %d\n", n);
-                if (n < 0)
-                {
-                    perror("write to socket(m)");
-                    break;
-                }
+                onceLock = 0;
+                memset(buf_protocol,0,sizeof(buf_protocol));
+                continue;
             }
-            else if(recv_data == 0)
-            {
-                printf("utos connect failed!(m)\n");
-                break;
-            }
-            else if(recv_data < 0)
-            {
-                perror("read from uart!(m)");      
-                break;
-            }
-            usleep(500);
         }
-    }
-    else
-    {
-        printf("Can not recv PROTOCOL!\n");
+        memset(buf,0,sizeof(buf));
+        int recv_data = read(uart_fd3,buf,sizeof(buf));
+        printf("uts(m) read recv_data = %d\n",recv_data);
+        //printf("buf: %s\n",buf);
+        if(recv_data > 0)
+        {
+            int n = send(cli_fd,buf,recv_data,0);
+            printf("uts(m) send n = %d\n", n);
+            if (n < 0)
+            {
+                perror("write to socket(m)");
+                break;
+            }
+        }
+        else if(recv_data == 0)
+        {
+            printf("utos connect failed!(m)\n");
+            break;
+        }
+        else if(recv_data < 0)
+        {
+            perror("read from uart!(m)");      
+            break;
+        }
+        usleep(500);
     }
 
     printf("uart_to_socket_modem exit...\n");  
