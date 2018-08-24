@@ -19,9 +19,11 @@
 #include<sys/types.h>
 #include<sys/stat.h>
 #include<sys/socket.h>
+#include<sys/ioctl.h>
 #include<fcntl.h>
 #include<termios.h>
 #include<pthread.h>
+#include<net/if.h>
 #include<netinet/in.h>
 #include<arpa/inet.h>
 
@@ -78,6 +80,7 @@ int Modem_call(char *num);
 void *pthread_utos_m(void *arg);
 void *pthread_stou_m(void *arg);
 void *pthread_Ctrluart(void *arg);
+void *pthread_KAB_IP(void *arg);
 
 int main(void)
 {
@@ -86,11 +89,12 @@ int main(void)
     int ser_return = 1;
     int slock = 1;
     int flock = 0;
-    char msg_DT_su[] = "\n*** 连接大唐路由成功！\n";
-    char msg_DT_fa[] = "\n*** 连接大唐路由失败！\n";
-    char msg_ctrluart_su[] = "\n*** 打开控制串口成功！\n";
-    char msg_ctrluart_fa[] = "\n*** 打开控制串口失败！\n";
+    char msg_DT_su[32] = "\n综合路由连接成功！\n";
+    char msg_DT_fa[32] = "\n综合路由连接失败！\n";
+    char msg_ctrluart_su[32] = "\n控制串口打开成功！\n";
+    char msg_ctrluart_fa[32] = "\n控制串口打开失败！\n";
     pthread_t ctrl_listen;
+    pthread_t kfb_ip;
     char *dev1 = DEVICE1;
     char *dev2 = DEVICE2;
     char *dev3 = DEVICE3;
@@ -103,7 +107,14 @@ int main(void)
         {
             uart_set(uart_fd1,115200,0,8,1,'N');//control uart init/set baud rate
             printf("Open contrl uart succeed!\n");//测试指示
-            write(uart_fd1,msg_ctrluart_su,sizeof(msg_ctrluart_su));//发送消息给上位机
+            //write(uart_fd1,msg_ctrluart_su,sizeof(msg_ctrluart_su));//发送消息给上位机
+            //发送本机IP
+            int kfb = pthread_create(&kfb_ip,NULL,pthread_KAB_IP,&uart_fd1);
+            if (kfb < 0)
+            {
+            	/* code */
+            	perror("pthread_KAB_IP");
+            }
             //建立命令串口监听线程
             int cp = pthread_create(&ctrl_listen,NULL,pthread_Ctrluart,&uart_fd1);
             if (cp < 0)
@@ -126,7 +137,7 @@ int main(void)
             if(cli_fd == -1)
             {
                 slock = 1;
-                sleep(1);
+                sleep(2);
                 write(uart_fd1,msg_DT_fa,sizeof(msg_DT_fa));
                 continue;
             }
@@ -246,7 +257,6 @@ int main(void)
             }
         }    
     }
-    return 0;
 }
 
 /************************************************************************************** 
@@ -527,8 +537,8 @@ void *Server_start(void *arg)
     int p = 1;
     int s = 1;
     int opt = 1;
-    char msg_TCP_online[] = "\n专网已建立连接,可进行通信...\n";
-    char msg_TCP_onconnect[] = "\n等待建立连接...\n";
+    char msg_TCP_online[] = "\n专网通信已建立连接！\n";
+    char msg_TCP_onconnect[] = "\n等待客户端连接...\n";
 
     bzero(&server,sizeof(server));   
     
@@ -574,7 +584,7 @@ void *Server_start(void *arg)
     socket_flag = 1;
     write(uart_fd1,msg_TCP_onconnect,strlen(msg_TCP_onconnect));//告知上位机等待建立连接
 
-    printf("等待建立连接!\n");
+    //printf("等待建立连接!\n");
     //建立连接前关闭服务器
     int c=sizeof(client);
     connfd = malloc(sizeof(int));//防止在两个线程中同时操作一个描述符
@@ -697,9 +707,9 @@ int Client_start(char *ip)
     struct sockaddr_in client;
     int p = 1;
     int s = 1;
-    char msg_TCP_online[] = "\n专网已建立连接,可进行通信...\n";
-    char msg_TCP_onconnect[] = "\n正在建立连接...\n";
-    char msg_TCP_fail[] = "\n建立连接失败,请重试!\n";
+    char msg_TCP_online[] = "\n专网通信已建立连接!\n";
+    char msg_TCP_onconnect[] = "\n正在连接服务器...\n";
+    char msg_TCP_fail[] = "\n连接服务器失败,请重试!\n";
 
     bzero(&client,sizeof(client));
     client.sin_family = AF_INET;
@@ -747,6 +757,7 @@ int Client_start(char *ip)
     TCP_flag_client = 1;
     write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
     pthread_join(thread1,NULL);
+    pthread_cancel(thread2)
     pthread_join(thread2,NULL);
     return 0;
 }
@@ -850,16 +861,16 @@ int Modem_answer(void)
     int waitConnect = 0;
     int sendAT = 0;
     int getSpeed = 0;
-    char msg_PSIN_online[] = "\n*** PSTN已建立连接,可进行通信...\n";
-    char msg_PSIN_oncall[] = "\n*** 等待被呼叫...\n";
-    char msg_PSIN_callModem[] = "\n*** 调制解调器异常！\n";
-    char msg_PSIN_nocall[] = "\n*** 无呼叫！请重试！\n";
-    char msg_PSIN_uartAbnormal[] = "\n*** 串口异常！请重试！\n";
-    char msg_PSIN_connectRecvBusy[] = "\n*** BUSY! 请重试！\n";
-    char msg_PSIN_connectRecvNoDIA[] = "\n*** NO DIAL TONE! 请重试！\n";
-    char msg_PSIN_connectRecvNoCARR[] = "\n*** NO CARRIER! 请重试！\n";
-    char msg_PSIN_waitOverTime[] = "\n*** 等待超时! 请重试！\n";
-    char msg_PSIN_unableToRespond[] = "\n*** 无法应答! 请重试！\n";
+    char msg_PSIN_online[] = "\nPSTN通信已建立连接!\n";
+    char msg_PSIN_oncall[] = "\n等待被呼叫...\n";
+    char msg_PSIN_callModem[] = "\n调制解调器异常！\n";
+    char msg_PSIN_nocall[] = "\n无呼叫！请重试！\n";
+    char msg_PSIN_uartAbnormal[] = "\n串口异常！请重试！\n";
+    char msg_PSIN_connectRecvBusy[] = "\nBUSY! 请重试！\n";
+    char msg_PSIN_connectRecvNoDIA[] = "\nNO DIAL TONE! 请重试！\n";
+    char msg_PSIN_connectRecvNoCARR[] = "\nNO CARRIER! 请重试！\n";
+    char msg_PSIN_waitOverTime[] = "\n等待超时! 请重试！\n";
+    char msg_PSIN_unableToRespond[] = "\n无法应答! 请重试！\n";
     /*接收at反回值*/
     while(uart_fd3 > 0)
     {
@@ -1067,16 +1078,16 @@ int Modem_call(char *num)
     int callModemTime = 0;
     int modemNotOK = 0;
     int waitConnect = 0;
-    char msg_PSIN_uartAbnormal[] = "\n*** 串口异常！请重试！\n";
-    char msg_PSIN_online[] = "\n*** PSTN已建立连接,可进行通信...\n";
-    char msg_PSIN_call[] = "\n*** 呼叫中...\n";
-    char msg_PSIN_callModem[] = "\n*** 调制解调器异常！\n";
-    char msg_PSIN_callfailed1[] = "\n*** 拨号：\n";
+    char msg_PSIN_uartAbnormal[] = "\n串口异常！请重试！\n";
+    char msg_PSIN_online[] = "\nPSTN通信已建立连接!\n";
+    char msg_PSIN_call[] = "\n呼叫中...\n";
+    char msg_PSIN_callModem[] = "\n调制解调器异常！\n";
+    char msg_PSIN_callfailed1[] = "\n拨号：\n";
     char msg_PSIN_callfailed2[] = "\n 失败！请重试！\n";
-    char msg_PSIN_waitOverTime[] = "\n*** 拨号超时! 请重试！\n";
-    char msg_PSIN_connectRecvBusy[] = "\n*** BUSY! 请重试！\n";
-    char msg_PSIN_connectRecvNoDIA[] = "\n*** NO DIAL TONE! 请重试！\n";
-    char msg_PSIN_connectRecvNoCARR[] = "\n*** NO CARRIER! 请重试！\n";
+    char msg_PSIN_waitOverTime[] = "\n拨号超时! 请重试！\n";
+    char msg_PSIN_connectRecvBusy[] = "\nBUSY! 请重试！\n";
+    char msg_PSIN_connectRecvNoDIA[] = "\nNO DIAL TONE! 请重试！\n";
+    char msg_PSIN_connectRecvNoCARR[] = "\nNO CARRIER! 请重试！\n";
 
     /*接收at反回值*/
     strcat(call_at,call_at2);
@@ -1443,10 +1454,10 @@ void *pthread_Ctrluart(void *arg)
 	char ctrlData[16] = {0};
     char command_reverse[8] = "+++";
     char command_ath[8] = "ATH0\r";
-    char msg_close_phone[] = "\n*** PSTN网络通信已中断!\n";
-    char msg_close_rs232[] = "\n*** RS232通信已中断!\n";
-    char msg_close_tcp[] = "\n*** 专网通信已中断!\n";
-    char msg_close_all[] = "\n*** 无连接通信!\n";
+    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
+    char msg_close_rs232[] = "\nRS232通信已中断!\n";
+    char msg_close_tcp[] = "\n专网通信已中断!\n";
+    char msg_close_all[] = "\n无通信连接!\n";
 
 	ctrl_channel = ctrlChannel;
 	ctrl_data = ctrlData;
@@ -1531,4 +1542,27 @@ void *pthread_Ctrluart(void *arg)
 
 	printf("pthread_Ctrluart exit...\n"); 
     pthread_exit(0);
+}
+
+void *pthread_KAB_IP(void *arg)
+{
+    int fd = *(int*)arg;
+    int inet_sock;
+    struct ifreq ifr;
+    char ip[64];
+    char *IP = ip;
+    char biaozhi[32] = "ip,";
+    inet_sock = socket(AF_INET,SOCK_DGRAM,0);
+    strcpy(ifr.ifr_name,"eth0");
+
+    if(ioctl(inet_sock,SIOCGIFADDR,&ifr) < 0)
+        perror("ioctl");
+
+    IP = inet_ntoa(((struct sockaddr_in*)&(ifr.ifr_addr))->sin_addr);
+    printf("IP: %s\n",IP);
+
+    strcat(biaozhi,IP);
+    write(fd,biaozhi,strlen(biaozhi));
+    sleep(2);
+
 }
