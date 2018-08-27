@@ -108,13 +108,6 @@ int main(void)
             uart_set(uart_fd1,115200,0,8,1,'N');//control uart init/set baud rate
             printf("Open contrl uart succeed!\n");//测试指示
             //write(uart_fd1,msg_ctrluart_su,sizeof(msg_ctrluart_su));//发送消息给上位机
-            //发送本机IP
-            int kfb = pthread_create(&kfb_ip,NULL,pthread_KAB_IP,&uart_fd1);
-            if (kfb < 0)
-            {
-            	/* code */
-            	perror("pthread_KAB_IP");
-            }
             //建立命令串口监听线程
             int cp = pthread_create(&ctrl_listen,NULL,pthread_Ctrluart,&uart_fd1);
             if (cp < 0)
@@ -143,13 +136,20 @@ int main(void)
             }
             else
             {   
+                //发送本机IP
+                int kfb = pthread_create(&kfb_ip,NULL,pthread_KAB_IP,&uart_fd1);
+                if (kfb < 0)
+                {
+                    /* code */
+                    perror("pthread_KAB_IP");
+                }
                 //send  msg to ctrl uart
                 if(slock)
                 {
-                    sleep(1);
-                    write(uart_fd1,msg_DT_su,sizeof(msg_DT_su));
+                    //write(uart_fd1,msg_DT_su,sizeof(msg_DT_su));
                     slock = 0;
                 }
+                sleep(1);
                 while(cli_fd > 0 && uart_fd1 > 0)//入口条件
                 {
                     system("clear");
@@ -613,6 +613,7 @@ void *Server_start(void *arg)
     TCP_flag_server = 1;
     write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
     pthread_join(thread1,NULL);
+    pthread_cancel(thread2);
     pthread_join(thread2,NULL);
     
     printf("结束了!\n");
@@ -757,7 +758,7 @@ int Client_start(char *ip)
     TCP_flag_client = 1;
     write(uart_fd1,msg_TCP_online,strlen(msg_TCP_online));//告知上位机建立连接，通信中
     pthread_join(thread1,NULL);
-    pthread_cancel(thread2)
+    pthread_cancel(thread2);
     pthread_join(thread2,NULL);
     return 0;
 }
@@ -1549,20 +1550,35 @@ void *pthread_KAB_IP(void *arg)
     int fd = *(int*)arg;
     int inet_sock;
     struct ifreq ifr;
-    char ip[64];
+    char ip[32];
+    char Lastip[32];
     char *IP = ip;
+    char *LASTIP = Lastip;
     char biaozhi[32] = "ip,";
-    inet_sock = socket(AF_INET,SOCK_DGRAM,0);
-    strcpy(ifr.ifr_name,"eth0");
 
-    if(ioctl(inet_sock,SIOCGIFADDR,&ifr) < 0)
-        perror("ioctl");
+    while(1)
+    {
+        inet_sock = socket(AF_INET,SOCK_DGRAM,0);
+        strcpy(ifr.ifr_name,"eth0");
 
-    IP = inet_ntoa(((struct sockaddr_in*)&(ifr.ifr_addr))->sin_addr);
-    printf("IP: %s\n",IP);
+        if(ioctl(inet_sock,SIOCGIFADDR,&ifr) < 0)
+            perror("ioctl");
 
-    strcat(biaozhi,IP);
-    write(fd,biaozhi,strlen(biaozhi));
-    sleep(2);
+        IP = inet_ntoa(((struct sockaddr_in*)&(ifr.ifr_addr))->sin_addr);
+        //printf("IP: %s\n",IP);
+        //printf("LASTIP: %s\n",LASTIP);         
 
+        if(*(LASTIP) != *(IP))
+        {
+            memset(LASTIP,0,sizeof(LASTIP));
+            strcpy(LASTIP,IP);
+            //printf("LASTIP: %s\n",LASTIP);
+            strcat(biaozhi,IP);
+            //printf("biaozhi: %s\n",biaozhi);
+            write(fd,biaozhi,strlen(biaozhi));
+        }
+        memset(IP,0,sizeof(IP));
+        sleep(2);
+    }
+    
 }
