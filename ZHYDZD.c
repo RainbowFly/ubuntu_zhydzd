@@ -30,6 +30,7 @@
 #define CPORT 9020
 #define LOCALPORT 7777  
 #define SIP "192.168.3.58"
+#define TestIP "192.168.1.123"
 #define DEVICE1 "/dev/ttyS1"//control uart
 #define DEVICE2 "/dev/ttyS2"//modem uart
 #define DEVICE3 "/dev/ttyS3"//RS232 uart  
@@ -81,6 +82,7 @@ void *pthread_utos_m(void *arg);
 void *pthread_stou_m(void *arg);
 void *pthread_Ctrluart(void *arg);
 void *pthread_KAB_IP(void *arg);
+int setip(char *ip);//固定IP，测试使用
 
 int main(void)
 {
@@ -93,13 +95,18 @@ int main(void)
     char msg_DT_fa[32] = "\n综合路由连接失败！\n";
     char msg_ctrluart_su[32] = "\n控制串口打开成功！\n";
     char msg_ctrluart_fa[32] = "\n控制串口打开失败！\n";
+    char msg_close_rs232[32] = "\nRS232通信已中断!\n";
     pthread_t ctrl_listen;
     pthread_t kfb_ip;
     char *dev1 = DEVICE1;
     char *dev2 = DEVICE2;
     char *dev3 = DEVICE3;
     char *IP = SIP;
-	
+    char *Tip = TestIP;//测试
+
+	//测试
+    int test = setip(Tip);
+
     for(;;)
     {
         uart_fd1 = open_dev(dev1);//open control uart
@@ -115,6 +122,13 @@ int main(void)
             	/* code */
             	perror("pthread_Ctrluart");
             }
+            //发送本机IP
+            int kfb = pthread_create(&kfb_ip,NULL,pthread_KAB_IP,&uart_fd1);
+            if (kfb < 0)
+            {
+                /* code */
+                perror("pthread_KAB_IP");
+            }
         }
         else
         {
@@ -123,6 +137,7 @@ int main(void)
             sleep(1);
             continue;
         }
+        
         while(1)//循环连接
         {
             system("clear");//调试清屏
@@ -136,20 +151,12 @@ int main(void)
             }
             else
             {   
-                //发送本机IP
-                int kfb = pthread_create(&kfb_ip,NULL,pthread_KAB_IP,&uart_fd1);
-                if (kfb < 0)
-                {
-                    /* code */
-                    perror("pthread_KAB_IP");
-                }
                 //send  msg to ctrl uart
                 if(slock)
                 {
-                    //write(uart_fd1,msg_DT_su,sizeof(msg_DT_su));
+                    write(uart_fd1,msg_DT_su,sizeof(msg_DT_su));
                     slock = 0;
                 }
-                sleep(1);
                 while(cli_fd > 0 && uart_fd1 > 0)//入口条件
                 {
                     system("clear");
@@ -244,7 +251,7 @@ int main(void)
                         UART_flag = 1;
                         pthread_join(socktouart,NULL);
                         pthread_join(uarttosock,NULL);
-                        su1 = 1;
+                        write(uart_fd1,msg_close_rs232,strlen(msg_close_rs232));//通知上位机
                         su2 = 1;
                         sleep(1);
                     }
@@ -539,6 +546,7 @@ void *Server_start(void *arg)
     int opt = 1;
     char msg_TCP_online[] = "\n专网通信已建立连接！\n";
     char msg_TCP_onconnect[] = "\n等待客户端连接...\n";
+    char msg_close_tcp[] = "\n专网通信已中断!\n";
 
     bzero(&server,sizeof(server));   
     
@@ -615,6 +623,7 @@ void *Server_start(void *arg)
     pthread_join(thread1,NULL);
     pthread_cancel(thread2);
     pthread_join(thread2,NULL);
+    write(uart_fd1,msg_close_tcp,strlen(msg_close_tcp));//通知上位机
     
     printf("结束了!\n");
     close(sockSev_fd);
@@ -711,6 +720,7 @@ int Client_start(char *ip)
     char msg_TCP_online[] = "\n专网通信已建立连接!\n";
     char msg_TCP_onconnect[] = "\n正在连接服务器...\n";
     char msg_TCP_fail[] = "\n连接服务器失败,请重试!\n";
+    char msg_close_tcp[] = "\n专网通信已中断!\n";
 
     bzero(&client,sizeof(client));
     client.sin_family = AF_INET;
@@ -760,6 +770,7 @@ int Client_start(char *ip)
     pthread_join(thread1,NULL);
     pthread_cancel(thread2);
     pthread_join(thread2,NULL);
+    write(uart_fd1,msg_close_tcp,strlen(msg_close_tcp));//通知上位机
     return 0;
 }
 void *pthread_clitocli(void *arg)
@@ -872,6 +883,7 @@ int Modem_answer(void)
     char msg_PSIN_connectRecvNoCARR[] = "\nNO CARRIER! 请重试！\n";
     char msg_PSIN_waitOverTime[] = "\n等待超时! 请重试！\n";
     char msg_PSIN_unableToRespond[] = "\n无法应答! 请重试！\n";
+    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
     /*接收at反回值*/
     while(uart_fd3 > 0)
     {
@@ -975,6 +987,7 @@ int Modem_answer(void)
                                     pthread_join(rec,NULL);
                                     pthread_cancel(sen);
                                     pthread_join(sen,NULL);
+                                    write(uart_fd1,msg_close_phone,strlen(msg_close_phone));//通知上位机
                                     return 0;
                                 }
                                 else if(strstr(num_recv,"BUSY") != 0)
@@ -1089,6 +1102,7 @@ int Modem_call(char *num)
     char msg_PSIN_connectRecvBusy[] = "\nBUSY! 请重试！\n";
     char msg_PSIN_connectRecvNoDIA[] = "\nNO DIAL TONE! 请重试！\n";
     char msg_PSIN_connectRecvNoCARR[] = "\nNO CARRIER! 请重试！\n";
+    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
 
     /*接收at反回值*/
     strcat(call_at,call_at2);
@@ -1159,6 +1173,7 @@ int Modem_call(char *num)
                                         pthread_join(rec,NULL);
                                         pthread_cancel(sen);
                                         pthread_join(sen,NULL);
+                                        write(uart_fd1,msg_close_phone,strlen(msg_close_phone));//通知上位机
                                         return 6;
                                     }
                                     else if(strstr(num_recv,"BUSY") != 0)
@@ -1455,10 +1470,10 @@ void *pthread_Ctrluart(void *arg)
 	char ctrlData[16] = {0};
     char command_reverse[8] = "+++";
     char command_ath[8] = "ATH0\r";
-    char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
-    char msg_close_rs232[] = "\nRS232通信已中断!\n";
-    char msg_close_tcp[] = "\n专网通信已中断!\n";
-    char msg_close_all[] = "\n无通信连接!\n";
+    //char msg_close_phone[] = "\nPSTN网络通信已中断!\n";
+    //char msg_close_rs232[] = "\nRS232通信已中断!\n";
+    //char msg_close_tcp[] = "\n专网通信已中断!\n";
+    char msg_close_all[] = "\n通信已中断!\n";
 
 	ctrl_channel = ctrlChannel;
 	ctrl_data = ctrlData;
@@ -1482,7 +1497,7 @@ void *pthread_Ctrluart(void *arg)
                 {
                     pthread_cancel(socktouart);
                     pthread_cancel(uarttosock);
-                    write(uart_fd1,msg_close_rs232,strlen(msg_close_rs232));//通知上位机
+                    //write(uart_fd1,msg_close_rs232,strlen(msg_close_rs232));//通知上位机
                     printf("关闭串口通信方式！\n");
                     UART_flag = 0;
                 }
@@ -1490,7 +1505,7 @@ void *pthread_Ctrluart(void *arg)
                 {
                     pthread_cancel(thread1);
                     pthread_cancel(thread2);
-                    write(uart_fd1,msg_close_tcp,strlen(msg_close_tcp));//通知上位机
+                    //write(uart_fd1,msg_close_tcp,strlen(msg_close_tcp));//通知上位机//2018/08/28优化位置
                     printf("关闭TCP通信方式！\n");
                     TCP_flag_server = 0;
                     TCP_flag_client = 0;
@@ -1514,7 +1529,7 @@ void *pthread_Ctrluart(void *arg)
                         }
                     }
                     printf("hang up modem!\n");
-                    write(uart_fd1,msg_close_phone,strlen(msg_close_phone));//通知上位机
+                    //write(uart_fd1,msg_close_phone,strlen(msg_close_phone));//通知上位机
                     close(uart_fd3);
                     printf("关闭PSTN通信方式！\n");
                     PSTN_flag = 0;
@@ -1544,7 +1559,12 @@ void *pthread_Ctrluart(void *arg)
 	printf("pthread_Ctrluart exit...\n"); 
     pthread_exit(0);
 }
-
+/************************************************************************************** 
+ *  Description:获取本机IP发送给上位机
+ *   Input Args: 
+ *  Output Args: 
+ * Return Value: 
+ *************************************************************************************/
 void *pthread_KAB_IP(void *arg)
 {
     int fd = *(int*)arg;
@@ -1581,4 +1601,30 @@ void *pthread_KAB_IP(void *arg)
         sleep(2);
     }
     
+}
+/************************************************************************************** 
+ *  Description:固定本机IP
+ *   Input Args: 目标IP
+ *  Output Args: 无
+ * Return Value: 无
+ *************************************************************************************/
+int setip(char *ip)
+{
+    struct ifreq temp;
+    struct sockaddr_in *addr;
+    int fd = 0;
+    int ret = -1;
+    strcpy(temp.ifr_name, "eth0");
+    if((fd=socket(AF_INET, SOCK_STREAM, 0))<0)
+    {
+      return -1;
+    }
+    addr = (struct sockaddr_in *)&(temp.ifr_addr);
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = inet_addr(ip);
+    ret = ioctl(fd, SIOCSIFADDR, &temp);
+    close(fd);
+    if(ret < 0)
+       return -1;
+    return 0;
 }
